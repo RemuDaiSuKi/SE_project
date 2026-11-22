@@ -1,8 +1,16 @@
 # 機敏設定
 .env
 
-# 資料目錄（SQLite 與上傳的學習單）
+# 資料目錄（SQLite、Google 授權檔）
 data/
+
+# Google OAuth 用戶端設定檔與授權檔（放在任何位置都不追蹤）
+client_secret*.json
+google-client-secret*.json
+google-token*.json
+
+# 本機工具（plantuml.jar 等，不納入版本控制）
+.tools/
 
 # Python
 __pycache__/

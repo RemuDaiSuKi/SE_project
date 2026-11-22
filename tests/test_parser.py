@@ -1,36 +1,33 @@
+"""解析規則測試：每個情境都經由「活頁簿 → Sheets API JSON → 格子資料 → parse_grid」。"""
+
 from __future__ import annotations
 
-import io
-import zipfile
-
+import openpyxl
 import pytest
 
+from app.google.convert import grid_from_sheets_api
 from app.worksheet.model import ImportRejected, Labels
-from app.worksheet.parser import (
-    EMPTY_FILE_MESSAGE,
-    INVALID_FILE_MESSAGE,
-    TOO_BIG_UNCOMPRESSED_MESSAGE,
-    ImportLimits,
-    format_value,
-    is_blank,
-    parse_xlsx,
-)
+from app.worksheet.parser import EMPTY_SPREADSHEET_MESSAGE, format_value, is_blank, parse_grid
 
 from . import builders
 from .conftest import FIXTURES
+from .sheets_json import workbook_to_sheets_json
 
 LABELS = Labels("題號", "題目", "作答")
-LIMITS = ImportLimits(10 * 1024 * 1024, 100 * 1024 * 1024, 500)
 
 
-def parse(workbook_or_bytes, labels: Labels = LABELS, limits: ImportLimits = LIMITS):
-    data = workbook_or_bytes if isinstance(workbook_or_bytes, bytes) else builders.to_bytes(workbook_or_bytes)
-    return parse_xlsx(data, labels, limits)
+def grid_of(source):
+    workbook = openpyxl.load_workbook(source) if not hasattr(source, "worksheets") else source
+    return grid_from_sheets_api(workbook_to_sheets_json(workbook))
 
 
-def rejected(workbook_or_bytes, **kwargs) -> ImportRejected:
+def parse(source, labels: Labels = LABELS, max_questions: int | None = 500):
+    return parse_grid(grid_of(source), labels, max_questions)
+
+
+def rejected(source, **kwargs) -> ImportRejected:
     with pytest.raises(ImportRejected) as info:
-        parse(workbook_or_bytes, **kwargs)
+        parse(source, **kwargs)
     return info.value
 
 
@@ -69,28 +66,26 @@ def test_format_value():
     assert format_value(" 3 ") == "3"
 
 
-# ---------------------------------------------------------------- real fixtures
+# ---------------------------------------------------------------- real samples
 
 
 def test_real_sample_a():
-    parsed = parse((FIXTURES / "sample_a.xlsx").read_bytes())
+    parsed = parse(FIXTURES / "sample_a.xlsx")
     assert summary(parsed) == EXPECTED_A
     assert parsed.group_count == 0
-    assert {q.sheet_part for q in parsed.questions} == {"xl/worksheets/sheet1.xml"}
+    assert {q.sheet_id for q in parsed.questions} == {0}
 
 
 def test_real_sample_b():
-    parsed = parse((FIXTURES / "sample_b.xlsx").read_bytes())
+    parsed = parse(FIXTURES / "sample_b.xlsx")
     assert summary(parsed) == EXPECTED_B
     assert [(g.group_no, g.range_ref, g.source_no, g.question_nos) for g in parsed.groups] == [
         (1, "B5:B6", "1", (1, 2)), (2, "B8:B9", "2", (3, 4))]
 
 
-def test_equivalent_builders_match_real_fixtures():
-    real_a = parse((FIXTURES / "sample_a.xlsx").read_bytes())
-    real_b = parse((FIXTURES / "sample_b.xlsx").read_bytes())
-    assert summary(parse(builders.sample_a())) == summary(real_a)
-    assert summary(parse(builders.sample_b())) == summary(real_b)
+def test_equivalent_builders_match_real_samples():
+    assert summary(parse(builders.sample_a())) == summary(parse(FIXTURES / "sample_a.xlsx"))
+    assert summary(parse(builders.sample_b())) == summary(parse(FIXTURES / "sample_b.xlsx"))
 
 
 # ---------------------------------------------------------------- layouts
@@ -107,7 +102,8 @@ def test_multi_sheet_skips_sheet_without_header_and_numbers_across_sheets():
     assert [(q.no, q.sheet_name, q.cell_ref) for q in parsed.questions] == [
         (1, "第一節", "G5"), (2, "第一節", "G6"), (3, "第一節", "G7"), (4, "第一節", "G8"),
         (5, "第二節", "C3"), (6, "第二節", "C4"), (7, "第二節", "C5")]
-    assert parsed.questions[0].sheet_part != parsed.questions[4].sheet_part
+    # 工作表以 Google 工作表 ID 識別
+    assert parsed.questions[0].sheet_id == 111 and parsed.questions[4].sheet_id == 222
 
 
 def test_custom_labels():
@@ -148,61 +144,11 @@ def test_unlabeled_source_number():
     assert question.source_no is None and question.source_no_display == "（未標示）"
 
 
-# ---------------------------------------------------------------- file errors
+# ---------------------------------------------------------------- errors
 
 
-def test_text_file_rejected():
-    assert rejected(b"just some text").summary == INVALID_FILE_MESSAGE
-
-
-def test_truncated_xlsx_rejected():
-    data = builders.to_bytes(builders.sample_a())
-    assert rejected(data[: len(data) // 2]).summary == INVALID_FILE_MESSAGE
-
-
-def test_zip_without_workbook_rejected():
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("content.xml", "<x/>")
-    assert rejected(buffer.getvalue()).summary == INVALID_FILE_MESSAGE
-
-
-def test_macro_workbook_rejected():
-    source = zipfile.ZipFile(io.BytesIO(builders.to_bytes(builders.sample_a())))
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        for info in source.infolist():
-            archive.writestr(info, source.read(info))
-        archive.writestr("xl/vbaProject.bin", b"\0" * 10)
-    assert rejected(buffer.getvalue()).summary == INVALID_FILE_MESSAGE
-
-
-def test_empty_bytes_rejected():
-    assert rejected(b"").summary == EMPTY_FILE_MESSAGE
-
-
-def test_blank_workbook_rejected():
-    assert rejected(builders.blank_workbook()).summary == EMPTY_FILE_MESSAGE
-
-
-def test_upload_size_limit():
-    data = builders.to_bytes(builders.sample_a())
-    error = rejected(data, limits=ImportLimits(len(data) - 1, None, None))
-    assert error.too_large
-    error = rejected(b"x" * (10 * 1024 * 1024 + 1))
-    assert error.summary == "檔案超過大小上限（10 MB）" and error.too_large
-
-
-def test_uncompressed_size_limit_reads_only_central_directory():
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("xl/workbook.xml", "<workbook/>")
-        archive.writestr("xl/huge.bin", b"\0" * (2 * 1024 * 1024))
-    error = rejected(buffer.getvalue(), limits=ImportLimits(None, 1024 * 1024, None))
-    assert error.summary == TOO_BIG_UNCOMPRESSED_MESSAGE
-
-
-# ---------------------------------------------------------------- structure errors
+def test_blank_spreadsheet_rejected():
+    assert rejected(builders.blank_workbook()).summary == EMPTY_SPREADSHEET_MESSAGE == "試算表沒有任何內容"
 
 
 def test_no_header():
@@ -217,6 +163,11 @@ def test_prefilled_answer():
     error = rejected(builders.prefilled())
     assert error.summary == "工作表「學習單」第 7 列：作答欄沒有空白填空格"
     assert (error.issues[0].sheet, error.issues[0].location) == ("學習單", "第 7 列")
+
+
+def test_real_prefilled_sample():
+    assert rejected(FIXTURES / "sample_a_wrong.xlsx").summary == \
+        "工作表「學習單」第 5 列：作答欄沒有空白填空格"
 
 
 def test_two_blank_cells():
@@ -246,7 +197,7 @@ def test_question_limit():
 
 
 def test_question_limit_configurable():
-    error = rejected(builders.many_questions(11), limits=ImportLimits(None, None, 10))
+    error = rejected(builders.many_questions(11), max_questions=10)
     assert error.summary == "題目數 11 超過上限 10"
 
 

@@ -1,0 +1,38 @@
+@startuml sequence-google-login
+title 時序圖：老師在本機完成 Google 授權
+skinparam defaultFontName "Microsoft JhengHei"
+autonumber
+
+actor "老師" as Teacher
+participant "登入指令\npython -m app google-login" as Cli
+participant "InstalledAppFlow" as Flow
+participant "本機回呼\n127.0.0.1:<隨機 port>" as Loopback
+participant "瀏覽器" as Browser
+participant "Google OAuth 2.0" as OAuth
+participant "Google userinfo" as UserInfo
+database "授權檔\ngoogle-token.json" as Token
+
+Teacher -> Cli : 執行登入指令
+Cli -> Cli : 檢查 OAuth 用戶端設定檔
+alt 設定檔不存在
+  Cli --> Teacher : 「找不到 Google OAuth 用戶端設定檔」＋設定說明（結束碼 1）
+end
+Cli -> Flow : from_client_secrets_file(範圍：試算表讀寫、email)
+Flow -> Loopback : 啟動暫時伺服器（只綁 127.0.0.1）
+Flow -> Browser : 開啟授權頁面
+Browser -> OAuth : 老師登入 Google 並同意授權
+alt 拒絕或逾時
+  OAuth --> Loopback : 錯誤 / 無回應
+  Flow --> Cli : 例外
+  Cli --> Teacher : 「Google 授權未完成」（授權檔不變，結束碼 1）
+end
+OAuth --> Loopback : 授權碼
+Loopback --> Flow : 授權碼
+Flow -> OAuth : 交換存取權杖與更新權杖
+OAuth --> Flow : Credentials
+Flow --> Cli : Credentials
+Cli -> UserInfo : 取得帳號 email
+UserInfo --> Cli : email
+Cli -> Token : 寫入 {account, credentials}（原子性取代）
+Cli --> Teacher : 「已完成 Google 授權：<email>」（結束碼 0）
+@enduml

@@ -1,0 +1,60 @@
+@startuml sequence-import
+title 時序圖：以網址匯入學習單
+skinparam defaultFontName "Microsoft JhengHei"
+autonumber
+
+actor "老師" as Teacher
+participant "瀏覽器\nteacher.js" as Browser
+participant "API\n/api/worksheets" as Api
+participant "GoogleSheetsGateway" as Gateway
+participant "GoogleAuth" as Auth
+participant "Google Sheets API" as Google
+participant "parse_grid" as Parser
+participant "PreviewStore" as Previews
+participant "WorksheetStore" as Store
+database "SQLite" as DB
+
+Teacher -> Browser : 貼上試算表網址
+Browser -> Api : POST /previews {url}
+Api -> Api : 解析網址取得試算表 ID
+alt 網址無效
+  Api --> Browser : 400「請輸入有效的 Google 試算表網址」
+end
+Api -> Gateway : fetch(spreadsheet_id)
+Gateway -> Auth : credentials()
+alt 尚未授權 / 授權失效
+  Auth --> Api : SheetsError(not_authorized / auth_expired)
+  Api --> Browser : 409 繁中說明（請執行 google-login）
+end
+Auth --> Gateway : 有效憑證（必要時自動更新並保存）
+Gateway -> Google : GET spreadsheets/{id}?includeGridData&fields=…
+alt 404 / 403 / 400（不是 Google 試算表格式）/ 網路錯誤
+  Google --> Gateway : 錯誤
+  Gateway --> Api : SheetsError
+  Api --> Browser : 繁中錯誤訊息
+end
+Google --> Gateway : 工作表、儲存格值、合併範圍
+Gateway --> Api : SpreadsheetGrid
+Api -> Parser : parse_grid(grid, labels, 題數上限)
+alt 結構錯誤
+  Parser --> Api : ImportRejected（所有錯誤與位置）
+  Api --> Browser : 400 錯誤清單
+end
+Parser --> Api : ParsedWorksheet
+Api -> Previews : add(試算表識別, 結構)
+Api --> Browser : 201 預覽（題數、題組、每題位置）
+Browser --> Teacher : 顯示確認畫面
+
+alt 老師按「確認」
+  Teacher -> Browser : 確認匯入
+  Browser -> Api : POST /previews/{id}/confirm
+  Api -> Previews : take(id)
+  Api -> Store : save(preview)
+  Store -> DB : INSERT 學習單、題組、題目（同一 transaction）
+  Api --> Browser : 201 已確認學習單
+else 老師按「取消」
+  Teacher -> Browser : 取消
+  Browser -> Api : DELETE /previews/{id}
+  Api -> Previews : discard(id)
+end
+@enduml

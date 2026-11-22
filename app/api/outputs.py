@@ -3,24 +3,26 @@
 from __future__ import annotations
 
 import logging
-from pathlib import PurePath
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from ..errors import AppError, ErrorDetail, not_found
-from ..results.contract import ActivityResult, ContractViolation, validate_result, winning_answers
+from ..results.contract import ActivityResult, ContractViolation, validate_result
 from ..results.csv_export import build_csv
 from ..security import Session
 from ..state import AppState, get_state, require_teacher
 from ..worksheet.store import StoredWorksheet
-from ..worksheet.writeback import StructureMismatch, build_writeback, verify_structure
+from ..worksheet.writeback import (
+    STRUCTURE_MISMATCH_MESSAGE,
+    StructureMismatch,
+    write_back,
+    writeback_message,
+)
 
 logger = logging.getLogger("buzzer")
 router = APIRouter(prefix="/api/activities")
-
-XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def attachment(filename: str, fallback: str) -> str:
@@ -49,28 +51,23 @@ def _worksheet_for(state: AppState, result: ActivityResult) -> StoredWorksheet:
 
 @router.post("/{activity_id}/writeback")
 def writeback(activity_id: int, _: Session = Depends(require_teacher),
-              state: AppState = Depends(get_state)) -> Response:
+              state: AppState = Depends(get_state)) -> dict:
     result = _ended_result(state, activity_id, "只能對已結束的活動寫回答案")
     worksheet = _worksheet_for(state, result)
-    original = state.worksheets.read_file(worksheet)
     try:
-        verify_structure(original, worksheet.file_sha256, worksheet.parsed,
-                         worksheet.parsed.labels)
+        report = write_back(result, worksheet, state.gateway)  # SheetsError 由例外處理器轉換
     except StructureMismatch as exc:
-        raise AppError(409, "STRUCTURE_MISMATCH", "學習單結構與匯入時不一致，無法寫回",
+        raise AppError(409, "STRUCTURE_MISMATCH", STRUCTURE_MISMATCH_MESSAGE,
                        details=[ErrorDetail(p) for p in exc.problems]) from None
-    output = build_writeback(original, worksheet.parsed.questions, winning_answers(result))
-    stem = PurePath(worksheet.original_filename).stem or "學習單"
-    logger.info("答案寫回 activity=%s 空白題數=%s", activity_id, len(output.empty_question_nos))
-    return Response(
-        content=output.content,
-        media_type=XLSX_MEDIA_TYPE,
-        headers={
-            "Content-Disposition": attachment(f"{stem}_搶答結果.xlsx",
-                                              f"worksheet-{activity_id}-result.xlsx"),
-            "X-Empty-Questions": ",".join(str(no) for no in output.empty_question_nos),
-        },
-    )
+    logger.info("答案寫回 activity=%s 寫入=%s 空白=%s 未覆蓋=%s", activity_id,
+                len(report.written), len(report.empty), len(report.skipped_filled))
+    return {
+        "message": writeback_message(report),
+        "written": list(report.written),
+        "empty": list(report.empty),
+        "skippedFilled": list(report.skipped_filled),
+        "spreadsheetUrl": worksheet.spreadsheet_url,
+    }
 
 
 @router.get("/{activity_id}/results.csv")

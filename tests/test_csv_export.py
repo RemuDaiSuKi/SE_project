@@ -7,7 +7,7 @@ from urllib.parse import unquote
 from app.results.csv_export import CSV_HEADER, build_csv
 
 from .results_helpers import group, rec, result, single
-from .test_writeback import confirm
+from .conftest import FIXTURES, import_worksheet
 
 
 def rows_of(content: bytes) -> list[list[str]]:
@@ -63,8 +63,8 @@ def test_no_records_only_header():
 # ---------------------------------------------------------------- API
 
 
-def test_csv_endpoint(client, teacher, results):
-    ws_id = confirm(client, teacher, "sample_b.xlsx")
+def test_csv_endpoint(client, teacher, results, gateway):
+    ws_id = import_worksheet(client, teacher, gateway, FIXTURES / "sample_b.xlsx")
     results.results[7] = result(ws_id, group(1, (1, 2), rec(1, 2, {1: "甲", 2: "乙"})),
                                 group(2, (3, 4)), single(5), single(6), activity_id=7)
     response = client.get("/api/activities/7/results.csv", headers=teacher)
@@ -77,8 +77,8 @@ def test_csv_endpoint(client, teacher, results):
                                              ["2", "第二組", "乙", "1", "成功"]]
 
 
-def test_csv_endpoint_empty(client, teacher, results):
-    ws_id = confirm(client, teacher, "sample_a.xlsx")
+def test_csv_endpoint_empty(client, teacher, results, gateway):
+    ws_id = import_worksheet(client, teacher, gateway, FIXTURES / "sample_a.xlsx")
     results.results[1] = result(ws_id, *[single(n) for n in range(1, 7)])
     response = client.get("/api/activities/1/results.csv", headers=teacher)
     assert response.headers["x-record-count"] == "0"
