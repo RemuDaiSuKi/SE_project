@@ -1,0 +1,14 @@
+# 機敏設定
+.env
+
+# 資料目錄（SQLite 與上傳的學習單）
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/

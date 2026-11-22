@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>老師 - 課堂搶答系統</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script type="module" src="/static/js/teacher.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>課堂搶答系統・老師</h1>
+    <button id="logout" class="hidden" type="button">登出</button>
+  </header>
+  <main>
+    <section id="login-view" class="card narrow hidden">
+      <h2>老師登入</h2>
+      <form id="login-form">
+        <label for="password">密碼</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <div class="row"><button class="primary" type="submit">登入</button></div>
+      </form>
+      <div id="login-message" class="message error hidden" role="alert"></div>
+    </section>
+
+    <div id="dashboard" class="hidden">
+      <section class="card">
+        <h2>匯入學習單</h2>
+        <p class="muted">請先在 Google Sheets 選擇「檔案 → 下載 → Microsoft Excel (.xlsx)」，再選擇下載的檔案。</p>
+        <form id="upload-form">
+          <label for="file">學習單檔案（.xlsx）</label>
+          <input id="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+          <div class="row"><button id="upload-button" class="primary" type="submit">上傳並檢查</button></div>
+        </form>
+        <div id="upload-message" class="message hidden" role="alert"></div>
+      </section>
+
+      <section id="preview" class="card hidden" aria-live="polite">
+        <h2>確認匯入內容：<span id="preview-filename"></span></h2>
+        <div class="chips">
+          <span class="chip" id="preview-count"></span>
+          <span class="chip" id="preview-groups"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>系統題號</th><th>原始題號</th><th>子題標籤</th><th>填空格位置</th><th>所屬題組</th></tr>
+            </thead>
+            <tbody id="preview-rows"></tbody>
+          </table>
+        </div>
+        <div class="row">
+          <button id="confirm" class="primary" type="button">確認匯入</button>
+          <button id="cancel" type="button">取消</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>已確認的學習單</h2>
+        <p id="worksheets-empty" class="muted">尚未匯入任何學習單。</p>
+        <div class="table-wrap">
+          <table id="worksheets-table" class="hidden">
+            <thead><tr><th>編號</th><th>檔名</th><th>題數</th><th>題組數</th><th>確認時間</th></tr></thead>
+            <tbody id="worksheets-rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

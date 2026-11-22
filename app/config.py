@@ -1,0 +1,96 @@
+"""伺服器設定：全部來自環境變數（前綴 BUZZER_）或 .env 檔。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_PREFIX = "BUZZER_"
+LISTEN_HOST = "127.0.0.1"  # 規格要求只監聽本機，刻意不提供設定
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix=ENV_PREFIX,
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    teacher_password: SecretStr | None = None
+    port: int = Field(default=8000, ge=1, le=65535)
+    data_dir: Path = Path("./data")
+
+    max_upload_mb: int = Field(default=10, ge=1, le=1024)
+    max_uncompressed_mb: int = Field(default=100, ge=1, le=4096)
+    max_questions: int = Field(default=500, ge=1, le=100_000)
+
+    label_no: str = "題號"
+    label_question: str = "題目"
+    label_answer: str = "作答"
+
+    lockout_max_failures: int = Field(default=5, ge=1, le=1000)
+    lockout_seconds: int = Field(default=60, ge=1, le=86_400)
+    token_ttl_hours: int = Field(default=12, ge=1, le=24 * 30)
+
+    @field_validator("label_no", "label_question", "label_answer")
+    @classmethod
+    def _label_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("label must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def _labels_distinct(self) -> "Settings":
+        labels = [self.label_no, self.label_question, self.label_answer]
+        if len(set(labels)) != len(labels):
+            raise ValueError("labels must be distinct")
+        return self
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
+
+    @property
+    def max_uncompressed_bytes(self) -> int:
+        return self.max_uncompressed_mb * 1024 * 1024
+
+    @property
+    def token_ttl_seconds(self) -> int:
+        return self.token_ttl_hours * 3600
+
+    def has_teacher_password(self) -> bool:
+        if self.teacher_password is None:
+            return False
+        return self.teacher_password.get_secret_value().strip() != ""
+
+
+_LABEL_FIELDS = ("label_no", "label_question", "label_answer")
+
+
+def env_name(field: str) -> str:
+    return f"{ENV_PREFIX}{field.upper()}"
+
+
+def invalid_setting_names(error: ValidationError) -> list[str]:
+    """把驗證錯誤轉成環境變數名稱清單（不含任何設定值）。"""
+    names: set[str] = set()
+    for item in error.errors():
+        loc = item.get("loc") or ()
+        if loc and isinstance(loc[0], str):
+            names.add(env_name(loc[0]))
+        else:  # 跨欄位驗證（例如表頭標籤重複）
+            names.update(env_name(f) for f in _LABEL_FIELDS)
+    return sorted(names)
+
+
+MISSING_PASSWORD_MESSAGE = (
+    f"未設定老師密碼（{env_name('teacher_password')}），伺服器無法啟動"
+)
+
+
+class StartupError(RuntimeError):
+    """伺服器無法啟動；訊息為繁體中文且不含機敏值。"""
