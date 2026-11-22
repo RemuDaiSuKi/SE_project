@@ -10,7 +10,7 @@ participant "本機回呼\n127.0.0.1:<隨機 port>" as Loopback
 participant "瀏覽器" as Browser
 participant "Google OAuth 2.0" as OAuth
 participant "Google userinfo" as UserInfo
-file "授權檔\ngoogle-token.json" as Token
+database "授權檔\ngoogle-token.json" as Token
 
 Teacher -> Cli : 執行登入指令
 Cli -> Cli : 檢查 OAuth 用戶端設定檔

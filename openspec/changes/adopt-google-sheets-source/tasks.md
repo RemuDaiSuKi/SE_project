@@ -39,13 +39,13 @@
 
 - [x] 7.1 更新 README：Google Cloud 專案與 OAuth 用戶端的建立步驟、`google-login` 用法、Testing 模式 7 天失效、試算表需共用給授權帳號、寫回後以版本記錄還原；依 README 步驟檢查每個指令都存在
 - [x] 7.2 比對 `diagrams/*.puml` 與最終實作（元件名稱、類別欄位、時序），有出入就更新
-- [ ] 7.3 把 `diagrams/*.puml` 轉成同名 PNG，確認每個 .puml 都有對應且內容最新的 PNG
+- [x] 7.3 把 `diagrams/*.puml` 轉成同名 PNG，確認每個 .puml 都有對應且內容最新的 PNG
 
 ## 8. 整合檢查
 
 - [x] 8.1 conftest 加上禁止真實網路請求的防護，擴充「全流程 log 不含機敏值」測試涵蓋假的 Google 存取權杖、更新權杖與用戶端密鑰，並更新權限矩陣加入 `/api/google/status`
 - [x] 8.2 確認程式中已無 `parse_xlsx`、lxml、multipart 上傳的殘留引用，執行完整 `pytest` 全部通過，並執行 `openspec validate adopt-google-sheets-source --strict` 通過
-- [ ] 8.3 撰寫 `scripts/google_writeback_check.py` 手動驗證工具，並由使用者以真實 Google 帳號完成：`google-login`、以網址匯入範例 A、B 的副本、執行工具寫回後在 Google 試算表確認答案、格式與第 2 題空白，再執行一次確認已有內容不被覆蓋
+- [x] 8.3 撰寫 `scripts/google_writeback_check.py` 手動驗證工具，並由使用者以真實 Google 帳號完成：`google-login`、以網址匯入範例 A、B 的副本、執行工具寫回後在 Google 試算表確認答案、格式與第 2 題空白，再執行一次確認已有內容不被覆蓋
 
 ## Workflow follow-up
 

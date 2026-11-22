@@ -13,8 +13,8 @@ package "格子資料（與資料來源無關）" {
   class SheetGrid {
     sheet_id: int
     title: str
-    values: dict[(row, col), value]
-    merges: tuple[(r0, c0, r1, c1)]
+    {field} values: dict[(row, col), value]
+    {field} merges: tuple[(r0, c0, r1, c1)]
     max_row: int
     without(positions): SheetGrid
   }
@@ -94,7 +94,7 @@ package "Google 存取" {
   }
   class GoogleSheetsGateway {
     timeout_seconds: float
-    session_factory: (Credentials) -> Session
+    {field} session_factory: (Credentials) -> Session
   }
   class GoogleAuth {
     client_secrets_file: Path

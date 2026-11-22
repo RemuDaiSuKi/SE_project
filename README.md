@@ -103,6 +103,17 @@ Copy-Item .env.example .env
 .venv\Scripts\python scripts\google_writeback_check.py 1
 ```
 
+## 設計圖
+
+`diagrams/*.puml` 是 PlantUML 原始檔，同名的 `.png` 是轉出的圖。修改 `.puml` 後需要重新轉檔（需要 Java）：
+
+1. 從 Maven Central 下載 `net.sourceforge.plantuml:plantuml` 的 jar（例如 1.2026.10），放到 `.tools/`（已列入 `.gitignore`）。
+2. 在專案根目錄執行：
+
+```powershell
+java -jar .tools\plantuml-1.2026.10.jar -charset UTF-8 -tpng -failfast2 diagrams\*.puml
+```
+
 ## 測試
 
 ```powershell

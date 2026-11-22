@@ -9,6 +9,9 @@ client_secret*.json
 google-client-secret*.json
 google-token*.json
 
+# 本機工具（plantuml.jar 等，不納入版本控制）
+.tools/
+
 # Python
 __pycache__/
 *.py[cod]
