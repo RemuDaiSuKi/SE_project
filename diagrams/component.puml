@@ -1,0 +1,58 @@
+@startuml component
+title 課堂搶答系統 元件圖（學習單匯入、Google 授權、寫回與匯出）
+skinparam componentStyle rectangle
+skinparam defaultFontName "Microsoft JhengHei"
+
+actor "老師" as Teacher
+
+node "老師的電腦（只監聽 127.0.0.1）" {
+  component "瀏覽器視窗\nteacher.html / api.js" as Browser
+  component "登入指令\npython -m app google-login" as LoginCli
+
+  node "FastAPI 伺服器（單一程序）" {
+    component "API 路由\nteacher / worksheets / google / outputs" as Api
+    component "身分與權限\nWindowRegistry / SessionStore" as Security
+    component "學習單解析器\nparse_grid" as Parser
+    component "預覽與學習單儲存\nPreviewStore / WorksheetStore" as Store
+    component "寫回服務\nwrite_back" as Writeback
+    component "CSV 匯出\nbuild_csv" as Csv
+    interface "FinalResultSource" as ResultsPort
+    component "Google 試算表存取層\nGoogleSheetsGateway" as Gateway
+    component "OAuth 授權管理\nGoogleAuth" as Auth
+  }
+
+  database "SQLite\nbuzzer.db" as DB
+  file "授權檔\ngoogle-token.json" as Token
+  file "OAuth 用戶端設定檔\ngoogle-client-secret.json" as ClientSecret
+}
+
+cloud "Google" {
+  component "Google Sheets API" as SheetsApi
+  component "Google OAuth 2.0" as OAuth
+}
+
+component "搶答活動\n（下一個 change）" as Activity #DDDDDD
+
+Teacher --> Browser
+Teacher --> LoginCli
+Browser --> Api : HTTP（Authorization: Bearer）
+Api --> Security
+Api --> Parser
+Api --> Store
+Api --> Writeback
+Api --> Csv
+Api --> Gateway : 讀取試算表
+Store --> DB
+Writeback --> Parser : 重新解析驗證結構
+Writeback --> Gateway : 讀取與寫入
+Writeback --> ResultsPort
+Csv --> ResultsPort
+Activity ..> ResultsPort : 提供 ActivityResult
+Gateway --> Auth : 取得有效憑證
+Gateway --> SheetsApi : HTTPS
+Auth --> Token : 讀取／更新
+Auth --> OAuth : 更新存取權杖
+LoginCli --> ClientSecret
+LoginCli --> OAuth : 授權（回呼 127.0.0.1）
+LoginCli --> Token : 保存授權
+@enduml

@@ -1,0 +1,158 @@
+@startuml class
+title 課堂搶答系統 類別圖（學習單、Google 存取、結果契約）
+skinparam defaultFontName "Microsoft JhengHei"
+hide empty members
+
+package "格子資料（與資料來源無關）" {
+  class SpreadsheetGrid {
+    spreadsheet_id: str
+    title: str
+    sheets: tuple[SheetGrid]
+  }
+  class SheetGrid {
+    sheet_id: int
+    title: str
+    values: dict[(row, col), value]
+    merges: tuple[(r0, c0, r1, c1)]
+    max_row: int
+  }
+  SpreadsheetGrid "1" *-- "many" SheetGrid
+}
+
+package "學習單" {
+  class Labels {
+    no: str
+    question: str
+    answer: str
+  }
+  class Question {
+    no: int
+    sheet_id: int
+    sheet_name: str
+    cell_ref: str
+    row: int
+    source_no: str?
+    sub_label: str?
+    group_no: int?
+    identity(): tuple
+  }
+  class QuestionGroup {
+    group_no: int
+    source_no: str?
+    sheet_id: int
+    range_ref: str
+    question_nos: tuple[int]
+  }
+  class ParsedWorksheet {
+    labels: Labels
+    questions: tuple[Question]
+    groups: tuple[QuestionGroup]
+  }
+  class StoredWorksheet {
+    id: int
+    spreadsheet_id: str
+    spreadsheet_url: str
+    title: str
+    confirmed_at: str
+    parsed: ParsedWorksheet
+  }
+  class Preview {
+    preview_id: str
+    spreadsheet_id: str
+    title: str
+    parsed: ParsedWorksheet
+    created_at: float
+  }
+  class PreviewStore {
+    add(...): Preview
+    take(id): Preview?
+    discard(id): bool
+  }
+  class WorksheetStore {
+    save(preview): StoredWorksheet
+    get(id): StoredWorksheet?
+    list(): list[StoredWorksheet]
+  }
+  ParsedWorksheet *-- Labels
+  ParsedWorksheet *-- "many" Question
+  ParsedWorksheet *-- "many" QuestionGroup
+  StoredWorksheet *-- ParsedWorksheet
+  Preview *-- ParsedWorksheet
+  PreviewStore o-- "0..10" Preview
+  WorksheetStore ..> StoredWorksheet
+}
+
+package "Google 存取" {
+  interface SheetsGateway {
+    fetch(spreadsheet_id): SpreadsheetGrid
+    write_cells(spreadsheet_id, writes): None
+  }
+  class GoogleSheetsGateway {
+    timeout_seconds: float
+  }
+  class GoogleAuth {
+    client_secrets_file: Path
+    token_file: Path
+    credentials(): Credentials
+    status(): AuthStatus
+  }
+  class AuthStatus {
+    configured: bool
+    authorized: bool
+    account: str?
+  }
+  class CellWrite {
+    sheet_title: str
+    cell_ref: str
+    text: str
+  }
+  class SheetsError {
+    kind: not_authorized | auth_expired | not_found
+          | forbidden | api_disabled | network | unavailable
+  }
+  SheetsGateway <|.. GoogleSheetsGateway
+  GoogleSheetsGateway --> GoogleAuth
+  GoogleAuth ..> AuthStatus
+  SheetsGateway ..> SpreadsheetGrid
+  SheetsGateway ..> CellWrite
+  SheetsGateway ..> SheetsError
+}
+
+package "活動結果契約" {
+  class ActivityResult {
+    activity_id: int
+    worksheet_id: int
+    ended_at: datetime
+  }
+  class ResultGroup {
+    group_id: int
+    name: str
+  }
+  class ResultUnit {
+    unit_id: str
+    question_nos: tuple[int]
+  }
+  class ResultRecord {
+    rank: int
+    group_id: int
+    answers: dict[int, str]
+    invalidated: bool
+  }
+  interface FinalResultSource {
+    lookup(activity_id): FinalResultLookup
+  }
+  ActivityResult *-- "many" ResultGroup
+  ActivityResult *-- "many" ResultUnit
+  ResultUnit *-- "many" ResultRecord
+  FinalResultSource ..> ActivityResult
+}
+
+class WritebackReport {
+  written: tuple[int]
+  empty: tuple[int]
+  skipped_filled: tuple[int]
+}
+
+ActivityResult ..> StoredWorksheet : worksheet_id
+WritebackReport ..> ActivityResult : write_back 依結果與\n重新讀取的試算表產生
+@enduml

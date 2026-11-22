@@ -1,0 +1,50 @@
+@startuml sequence-writeback
+title 時序圖：把成功答案寫回原 Google 試算表
+skinparam defaultFontName "Microsoft JhengHei"
+autonumber
+
+actor "老師" as Teacher
+participant "瀏覽器" as Browser
+participant "API\n/api/activities/{id}/writeback" as Api
+participant "FinalResultSource" as Results
+participant "WorksheetStore" as Store
+participant "write_back" as Service
+participant "parse_grid" as Parser
+participant "GoogleSheetsGateway" as Gateway
+participant "Google Sheets API" as Google
+
+Teacher -> Browser : 按「寫回答案」
+Browser -> Api : POST writeback
+Api -> Results : lookup(activity_id)
+alt 不存在 / 尚未結束
+  Api --> Browser : 404「找不到活動」/ 409「只能對已結束的活動寫回答案」
+end
+Results --> Api : ActivityResult
+Api -> Store : get(worksheet_id)
+Api -> Service : write_back(result, worksheet)
+Service -> Gateway : fetch(spreadsheet_id)
+Gateway -> Google : GET spreadsheets/{id}（重新讀取最新內容）
+Google --> Gateway : 儲存格值與合併範圍
+Gateway --> Service : SpreadsheetGrid
+Service -> Service : 把預期的填空格內容暫時視為空白
+Service -> Parser : parse_grid(grid, 匯入時的標籤)
+Parser --> Service : ParsedWorksheet
+Service -> Service : 逐題比對工作表 ID、位置、列號、原始題號、子題標籤、題組
+alt 結構不一致
+  Service --> Api : StructureMismatch（不一致項目）
+  Api --> Browser : 409「學習單結構與匯入時不一致，無法寫回」
+end
+Service -> Service : 每題取「順位最小且未被判定無效」的答案\n填空格目前空白 → 寫入清單\n已有內容 → 跳過並記錄
+opt 有要寫入的填空格
+  Service -> Gateway : write_cells(寫入清單)
+  Gateway -> Google : POST values:batchUpdate（valueInputOption=RAW，單一批次）
+  alt 403 / 網路錯誤
+    Google --> Gateway : 錯誤
+    Gateway --> Api : SheetsError
+    Api --> Browser : 繁中錯誤訊息（排除後可直接重試）
+  end
+  Google --> Gateway : 成功
+end
+Service --> Api : WritebackReport（已寫入、保持空白、已有內容未覆蓋）
+Api --> Browser : 200 完成訊息與原試算表連結
+@enduml
