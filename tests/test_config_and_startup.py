@@ -18,10 +18,26 @@ ROOT = Path(__file__).resolve().parent.parent
 def test_defaults():
     s = Settings(_env_file=None)
     assert s.port == 8000
-    assert s.max_upload_mb == 10 and s.max_uncompressed_mb == 100 and s.max_questions == 500
+    assert s.max_questions == 500
     assert (s.label_no, s.label_question, s.label_answer) == ("題號", "題目", "作答")
     assert s.lockout_max_failures == 5 and s.lockout_seconds == 60 and s.token_ttl_hours == 12
     assert s.teacher_password is None and not s.has_teacher_password()
+    assert s.google_client_secrets_path == Path("data") / "google-client-secret.json"
+    assert s.google_token_path == Path("data") / "google-token.json"
+    assert s.google_timeout_seconds == 20
+    assert not hasattr(s, "max_upload_mb")
+
+
+def test_google_paths_follow_data_dir_and_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    s = Settings(_env_file=None, data_dir=tmp_path)
+    assert s.google_client_secrets_path == tmp_path / "google-client-secret.json"
+    monkeypatch.setenv("BUZZER_GOOGLE_CLIENT_SECRETS", str(tmp_path / "x" / "client_secret_1.json"))
+    monkeypatch.setenv("BUZZER_GOOGLE_TOKEN_FILE", str(tmp_path / "tok.json"))
+    monkeypatch.setenv("BUZZER_GOOGLE_TIMEOUT_SECONDS", "5")
+    s = Settings(_env_file=None, data_dir=tmp_path)
+    assert s.google_client_secrets_path == tmp_path / "x" / "client_secret_1.json"
+    assert s.google_token_path == tmp_path / "tok.json"
+    assert s.google_timeout_seconds == 5
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -39,6 +55,7 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     ("port", "70000", "BUZZER_PORT"),
     ("max_questions", "0", "BUZZER_MAX_QUESTIONS"),
     ("label_no", "   ", "BUZZER_LABEL_NO"),
+    ("google_timeout_seconds", "0", "BUZZER_GOOGLE_TIMEOUT_SECONDS"),
 ])
 def test_invalid_values_report_setting_name(field, value, env):
     with pytest.raises(ValidationError) as info:
@@ -59,13 +76,14 @@ def test_create_app_refuses_without_password(value, tmp_path):
         create_app(Settings(_env_file=None, teacher_password=value, data_dir=tmp_path))
 
 
-def _run_main(env_updates: dict[str, str], tmp_path: Path) -> subprocess.CompletedProcess:
+def _run_main(env_updates: dict[str, str], tmp_path: Path,
+              args: list[str] | None = None) -> subprocess.CompletedProcess:
     env = {k: v for k, v in os.environ.items() if not k.startswith("BUZZER_")}
     # PYTHONPATH 讓子程序能 import 專案的 app 套件；cwd 在暫存目錄，不會讀到專案的 .env
     env.update({"PYTHONIOENCODING": "utf-8", "BUZZER_DATA_DIR": str(tmp_path / "data"),
                 "PYTHONPATH": str(ROOT)})
     env.update(env_updates)
-    return subprocess.run([sys.executable, "-m", "app"], cwd=tmp_path, env=env,
+    return subprocess.run([sys.executable, "-m", "app", *(args or [])], cwd=tmp_path, env=env,
                           capture_output=True, timeout=60)
 
 
@@ -89,6 +107,27 @@ def test_main_exits_on_invalid_setting_without_leaking_values(tmp_path):
     assert proc.returncode == 1
     assert "設定不合法" in output and "BUZZER_PORT" in output
     assert secret not in output and "abc" not in output
+
+
+def test_unknown_command(tmp_path):
+    proc = _run_main({"BUZZER_TEACHER_PASSWORD": "x"}, tmp_path, args=["no-such-command"])
+    assert proc.returncode == 2
+    assert "未知的指令" in proc.stderr.decode("utf-8")
+
+
+def test_google_login_command_without_client_file(tmp_path):
+    # 登入指令不需要老師密碼；缺少用戶端設定檔時不開啟瀏覽器
+    proc = _run_main({}, tmp_path, args=["google-login"])
+    assert proc.returncode == 1
+    assert "找不到 Google OAuth 用戶端設定檔（BUZZER_GOOGLE_CLIENT_SECRETS）" in proc.stderr.decode("utf-8")
+
+
+def test_server_starts_without_google_authorization(settings):
+    # 伺服器可在未完成 Google 授權時建立（只有讀寫試算表會失敗）
+    app = create_app(settings)
+    status = app.state.buzzer.google_auth.status()
+    assert (status.configured, status.authorized) == (False, False)
+    app.state.buzzer.db.close()
 
 
 def test_server_config_is_local_single_process(settings):

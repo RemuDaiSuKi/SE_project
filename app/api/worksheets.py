@@ -4,21 +4,26 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
-from starlette.datastructures import UploadFile
 
 from ..errors import AppError, ErrorDetail, not_found
+from ..google.urls import canonical_url, parse_spreadsheet_id
 from ..security import Session
 from ..state import AppState, get_state, require_teacher
 from ..worksheet.model import ImportRejected, Labels, ParsedWorksheet, Question, QuestionGroup
-from ..worksheet.parser import ImportLimits, parse_xlsx
-from ..worksheet.store import StoredWorksheet, safe_filename
+from ..worksheet.parser import parse_grid
+from ..worksheet.store import StoredWorksheet
 
 logger = logging.getLogger("buzzer")
 router = APIRouter(prefix="/api/worksheets")
 
-_MULTIPART_OVERHEAD = 1024 * 1024
+INVALID_URL_MESSAGE = "請輸入有效的 Google 試算表網址"
+
+
+class PreviewBody(BaseModel):
+    url: str = Field(max_length=2000)
 
 
 def question_json(q: Question) -> dict:
@@ -39,43 +44,33 @@ def parsed_json(parsed: ParsedWorksheet) -> dict:
 
 
 def worksheet_summary(ws: StoredWorksheet) -> dict:
-    return {"id": ws.id, "filename": ws.original_filename, "questionCount": ws.question_count,
-            "groupCount": ws.group_count, "confirmedAt": ws.confirmed_at}
+    return {"id": ws.id, "title": ws.title, "spreadsheetUrl": ws.spreadsheet_url,
+            "questionCount": ws.question_count, "groupCount": ws.group_count,
+            "confirmedAt": ws.confirmed_at}
 
 
 def _rejected(exc: ImportRejected) -> AppError:
     details = [ErrorDetail(i.message, i.sheet, i.location) for i in exc.issues]
-    return AppError(413 if exc.too_large else 400, "IMPORT_INVALID", exc.summary, details=details)
+    return AppError(400, "IMPORT_INVALID", exc.summary, details=details)
 
 
 @router.post("/previews", status_code=201)
-async def create_preview(request: Request, _: Session = Depends(require_teacher),
+async def create_preview(body: PreviewBody, _: Session = Depends(require_teacher),
                          state: AppState = Depends(get_state)) -> dict:
+    spreadsheet_id = parse_spreadsheet_id(body.url)
+    if spreadsheet_id is None:
+        raise AppError(400, "INVALID_URL", INVALID_URL_MESSAGE)
     settings = state.settings
-    limits = ImportLimits(settings.max_upload_bytes, settings.max_uncompressed_bytes,
-                          settings.max_questions)
-    too_large = AppError(413, "IMPORT_INVALID",
-                         f"檔案超過大小上限（{settings.max_upload_mb} MB）")
-    length = request.headers.get("content-length")
-    if length and length.isdigit() and int(length) > settings.max_upload_bytes + _MULTIPART_OVERHEAD:
-        raise too_large
-    try:
-        form = await request.form(max_files=1, max_fields=5)
-    except Exception:
-        raise AppError(400, "BAD_REQUEST", "請求格式不正確") from None
-    upload = form.get("file")
-    if not isinstance(upload, UploadFile):
-        raise AppError(400, "NO_FILE", "請選擇要上傳的檔案")
-    data = await upload.read(settings.max_upload_bytes + 1)
-    filename = safe_filename(upload.filename)
-    await upload.close()
     labels = Labels(settings.label_no, settings.label_question, settings.label_answer)
+    grid = await run_in_threadpool(state.gateway.fetch, spreadsheet_id)  # SheetsError 由例外處理器轉換
     try:
-        parsed = await run_in_threadpool(parse_xlsx, data, labels, limits)
+        parsed = parse_grid(grid, labels, settings.max_questions)
     except ImportRejected as exc:
         raise _rejected(exc) from None
-    preview = state.previews.add(filename, data, parsed)
-    return {"previewId": preview.preview_id, "filename": filename, **parsed_json(parsed)}
+    url = canonical_url(spreadsheet_id)
+    preview = state.previews.add(spreadsheet_id, url, grid.title, parsed)
+    return {"previewId": preview.preview_id, "spreadsheetTitle": grid.title,
+            "spreadsheetUrl": url, **parsed_json(parsed)}
 
 
 @router.post("/previews/{preview_id}/confirm", status_code=201)
@@ -83,7 +78,7 @@ def confirm_preview(preview_id: str, _: Session = Depends(require_teacher),
                     state: AppState = Depends(get_state)) -> dict:
     preview = state.previews.take(preview_id)
     if preview is None:
-        raise AppError(409, "PREVIEW_EXPIRED", "預覽已失效，請重新上傳")
+        raise AppError(409, "PREVIEW_EXPIRED", "預覽已失效，請重新讀取試算表")
     stored = state.worksheets.save(preview)
     logger.info("學習單已確認 id=%s 題數=%s 題組數=%s", stored.id, stored.question_count,
                 stored.group_count)

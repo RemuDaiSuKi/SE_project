@@ -8,6 +8,7 @@ package "格子資料（與資料來源無關）" {
     spreadsheet_id: str
     title: str
     sheets: tuple[SheetGrid]
+    sheet(sheet_id): SheetGrid?
   }
   class SheetGrid {
     sheet_id: int
@@ -15,6 +16,7 @@ package "格子資料（與資料來源無關）" {
     values: dict[(row, col), value]
     merges: tuple[(r0, c0, r1, c1)]
     max_row: int
+    without(positions): SheetGrid
   }
   SpreadsheetGrid "1" *-- "many" SheetGrid
 }
@@ -40,8 +42,10 @@ package "學習單" {
     group_no: int
     source_no: str?
     sheet_id: int
+    sheet_name: str
     range_ref: str
     question_nos: tuple[int]
+    identity(): tuple
   }
   class ParsedWorksheet {
     labels: Labels
@@ -59,6 +63,7 @@ package "學習單" {
   class Preview {
     preview_id: str
     spreadsheet_id: str
+    spreadsheet_url: str
     title: str
     parsed: ParsedWorksheet
     created_at: float
@@ -89,6 +94,7 @@ package "Google 存取" {
   }
   class GoogleSheetsGateway {
     timeout_seconds: float
+    session_factory: (Credentials) -> Session
   }
   class GoogleAuth {
     client_secrets_file: Path
@@ -107,8 +113,9 @@ package "Google 存取" {
     text: str
   }
   class SheetsError {
-    kind: not_authorized | auth_expired | not_found
-          | forbidden | api_disabled | network | unavailable
+    kind: not_authorized | auth_expired | not_found | forbidden
+          | api_disabled | not_spreadsheet | network | unavailable
+    message: str
   }
   SheetsGateway <|.. GoogleSheetsGateway
   GoogleSheetsGateway --> GoogleAuth

@@ -1,4 +1,7 @@
-"""啟動入口：python -m app"""
+"""啟動入口：
+- python -m app               啟動伺服器
+- python -m app google-login  完成 Google 授權
+"""
 
 from __future__ import annotations
 
@@ -9,6 +12,8 @@ from pydantic import ValidationError
 
 from .config import LISTEN_HOST, Settings, StartupError, invalid_setting_names
 from .logging_setup import setup_logging
+
+COMMANDS = ("google-login",)
 
 
 def load_settings() -> Settings:
@@ -21,14 +26,23 @@ def build_server_config(app, settings: Settings) -> uvicorn.Config:  # noqa: ANN
                           access_log=False, server_header=False, log_level="info")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if args and args[0] not in COMMANDS:
+        print(f"未知的指令：{args[0]}（可用指令：{'、'.join(COMMANDS)}）", file=sys.stderr)
+        return 2
     setup_logging()
     try:
         settings = load_settings()
     except ValidationError as exc:
-        print("設定不合法，伺服器無法啟動：" + "、".join(invalid_setting_names(exc)),
-              file=sys.stderr)
+        print("設定不合法，無法執行：" + "、".join(invalid_setting_names(exc)), file=sys.stderr)
         return 1
+
+    if args and args[0] == "google-login":
+        from .google.login import run_login
+
+        return run_login(settings)
+
     try:
         from .main import create_app
 

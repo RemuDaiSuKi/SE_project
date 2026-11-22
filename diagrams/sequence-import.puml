@@ -28,7 +28,7 @@ alt 尚未授權 / 授權失效
 end
 Auth --> Gateway : 有效憑證（必要時自動更新並保存）
 Gateway -> Google : GET spreadsheets/{id}?includeGridData&fields=…
-alt 404 / 403 / 網路錯誤
+alt 404 / 403 / 400（不是 Google 試算表格式）/ 網路錯誤
   Google --> Gateway : 錯誤
   Gateway --> Api : SheetsError
   Api --> Browser : 繁中錯誤訊息

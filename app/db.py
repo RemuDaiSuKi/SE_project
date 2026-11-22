@@ -8,25 +8,33 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
-_SCHEMA_V1 = """
+# 第 1 版以 .xlsx 原始檔為來源，沒有試算表 ID，無法轉換；升級時捨棄（design.md D8）
+_DROP_V1 = """
+DROP TABLE IF EXISTS worksheet_questions;
+DROP TABLE IF EXISTS worksheet_groups;
+DROP TABLE IF EXISTS worksheets;
+"""
+
+_SCHEMA_V2 = """
 CREATE TABLE IF NOT EXISTS worksheets (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    original_filename TEXT    NOT NULL,
-    stored_name       TEXT    NOT NULL UNIQUE,
-    file_sha256       TEXT    NOT NULL,
-    label_no          TEXT    NOT NULL,
-    label_question    TEXT    NOT NULL,
-    label_answer      TEXT    NOT NULL,
-    question_count    INTEGER NOT NULL,
-    group_count       INTEGER NOT NULL,
-    confirmed_at      TEXT    NOT NULL
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    spreadsheet_id   TEXT    NOT NULL,
+    spreadsheet_url  TEXT    NOT NULL,
+    title            TEXT    NOT NULL,
+    label_no         TEXT    NOT NULL,
+    label_question   TEXT    NOT NULL,
+    label_answer     TEXT    NOT NULL,
+    question_count   INTEGER NOT NULL,
+    group_count      INTEGER NOT NULL,
+    confirmed_at     TEXT    NOT NULL
 );
 CREATE TABLE IF NOT EXISTS worksheet_groups (
     worksheet_id INTEGER NOT NULL REFERENCES worksheets(id) ON DELETE CASCADE,
     group_no     INTEGER NOT NULL,
     source_no    TEXT,
+    sheet_id     INTEGER NOT NULL,
     sheet_name   TEXT    NOT NULL,
     range_ref    TEXT    NOT NULL,
     PRIMARY KEY (worksheet_id, group_no)
@@ -34,8 +42,8 @@ CREATE TABLE IF NOT EXISTS worksheet_groups (
 CREATE TABLE IF NOT EXISTS worksheet_questions (
     worksheet_id INTEGER NOT NULL REFERENCES worksheets(id) ON DELETE CASCADE,
     no           INTEGER NOT NULL,
+    sheet_id     INTEGER NOT NULL,
     sheet_name   TEXT    NOT NULL,
-    sheet_part   TEXT    NOT NULL,
     cell_ref     TEXT    NOT NULL,
     row          INTEGER NOT NULL,
     source_no    TEXT,
@@ -62,8 +70,10 @@ class Database:
     def _migrate(self) -> None:
         with self._lock:
             version = self._conn.execute("PRAGMA user_version").fetchone()[0]
-            if version < 1:
-                self._conn.executescript(_SCHEMA_V1)
+            if version == 1:
+                self._conn.executescript(_DROP_V1)
+            if version < 2:
+                self._conn.executescript(_SCHEMA_V2)
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     @contextmanager

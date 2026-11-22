@@ -51,7 +51,7 @@
 - **THEN** 系統拒絕並顯示「Google 授權已失效，請重新執行 python -m app google-login」
 
 ### Requirement: Google 存取錯誤訊息
-讀寫 Google 試算表失敗時，系統 SHALL 依原因顯示繁中訊息，且訊息 MUST NOT 含權杖、內部錯誤細節或 Google 回傳的原始內容：找不到試算表時顯示「找不到試算表，請確認網址是否正確」；沒有權限時顯示「目前授權的 Google 帳號沒有這份試算表的讀取或編輯權限，請確認試算表已共用給該帳號」；無法連線時顯示「無法連線到 Google，請確認網路連線後再試」；Google Cloud 專案尚未啟用 Google Sheets API 時顯示「Google Cloud 專案尚未啟用 Google Sheets API，請依 README 啟用後再試」；Google 服務異常或流量受限時顯示「Google 服務暫時無法使用，請稍後再試」。
+讀寫 Google 試算表失敗時，系統 SHALL 依原因顯示繁中訊息，且訊息 MUST NOT 含權杖、內部錯誤細節或 Google 回傳的原始內容：找不到試算表時顯示「找不到試算表，請確認網址是否正確」；檔案不是 Google 試算表格式（例如上傳到雲端硬碟的 Excel 檔）時顯示「這個檔案不是 Google 試算表格式，請先在 Google 試算表中選擇「檔案 → 儲存為 Google 試算表」後再使用新檔案的網址」；沒有權限時顯示「目前授權的 Google 帳號沒有這份試算表的讀取或編輯權限，請確認試算表已共用給該帳號」；無法連線時顯示「無法連線到 Google，請確認網路連線後再試」；Google Cloud 專案尚未啟用 Google Sheets API 時顯示「Google Cloud 專案尚未啟用 Google Sheets API，請依 README 啟用後再試」；Google 服務異常或流量受限時顯示「Google 服務暫時無法使用，請稍後再試」。
 
 #### Scenario: 沒有權限
 - **WHEN** 老師匯入一份沒有共用給授權帳號的試算表
@@ -60,6 +60,10 @@
 #### Scenario: 網路中斷
 - **WHEN** 匯入時無法連線到 Google
 - **THEN** 系統顯示「無法連線到 Google，請確認網路連線後再試」
+
+#### Scenario: 雲端硬碟中的 Excel 檔
+- **WHEN** 老師輸入的網址指向上傳到雲端硬碟、尚未轉成 Google 試算表的 .xlsx 檔
+- **THEN** 系統顯示「這個檔案不是 Google 試算表格式」並說明如何另存為 Google 試算表
 
 #### Scenario: 未啟用 Sheets API
 - **WHEN** OAuth 用戶端所屬的 Google Cloud 專案沒有啟用 Google Sheets API 時匯入

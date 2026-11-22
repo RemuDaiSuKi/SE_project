@@ -17,8 +17,8 @@ class Labels:
 @dataclass(frozen=True)
 class Question:
     no: int                  # 系統題號 1..N
-    sheet_name: str
-    sheet_part: str          # zip 內的工作表 XML 路徑，例如 xl/worksheets/sheet1.xml
+    sheet_id: int            # Google 工作表 ID（gid）；改名不影響
+    sheet_name: str          # 匯入時的工作表名稱，只用於顯示
     cell_ref: str            # 填空格（合併時為左上角），例如 G5
     row: int
     source_no: str | None    # 學習單原始題號；沒有內容時為 None
@@ -34,15 +34,16 @@ class Question:
         return f"{self.sheet_name}!{self.cell_ref}"
 
     def identity(self) -> tuple:
-        """寫回前一致性比對用的欄位。"""
-        return (self.no, self.sheet_name, self.sheet_part, self.cell_ref, self.row,
-                self.source_no, self.sub_label, self.group_no)
+        """寫回前一致性比對用的欄位（不含工作表名稱，改名不算結構改變）。"""
+        return (self.no, self.sheet_id, self.cell_ref, self.row, self.source_no,
+                self.sub_label, self.group_no)
 
 
 @dataclass(frozen=True)
 class QuestionGroup:
     group_no: int
     source_no: str | None
+    sheet_id: int
     sheet_name: str
     range_ref: str           # 題號欄的合併範圍，例如 B5:B6
     question_nos: tuple[int, ...]
@@ -50,6 +51,9 @@ class QuestionGroup:
     @property
     def source_no_display(self) -> str:
         return self.source_no if self.source_no else UNLABELED_SOURCE_NO
+
+    def identity(self) -> tuple:
+        return (self.group_no, self.sheet_id, self.range_ref, self.source_no, self.question_nos)
 
 
 @dataclass(frozen=True)
@@ -77,11 +81,9 @@ class ImportIssue:
 class ImportRejected(Exception):
     """學習單被整份拒絕。"""
 
-    def __init__(self, issues: list[ImportIssue], *, too_large: bool = False,
-                 total: int | None = None) -> None:
+    def __init__(self, issues: list[ImportIssue], *, total: int | None = None) -> None:
         super().__init__(issues[0].message if issues else "")
         self.issues = issues
-        self.too_large = too_large
         self.total = total if total is not None else len(issues)
 
     @property

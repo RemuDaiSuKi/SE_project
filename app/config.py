@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, ge=1, le=65535)
     data_dir: Path = Path("./data")
 
-    max_upload_mb: int = Field(default=10, ge=1, le=1024)
-    max_uncompressed_mb: int = Field(default=100, ge=1, le=4096)
     max_questions: int = Field(default=500, ge=1, le=100_000)
+
+    google_client_secrets: Path | None = None   # 未設定時為 <資料目錄>/google-client-secret.json
+    google_token_file: Path | None = None       # 未設定時為 <資料目錄>/google-token.json
+    google_timeout_seconds: float = Field(default=20, gt=0, le=300)
 
     label_no: str = "題號"
     label_question: str = "題目"
@@ -51,12 +53,12 @@ class Settings(BaseSettings):
         return self
 
     @property
-    def max_upload_bytes(self) -> int:
-        return self.max_upload_mb * 1024 * 1024
+    def google_client_secrets_path(self) -> Path:
+        return self.google_client_secrets or Path(self.data_dir) / "google-client-secret.json"
 
     @property
-    def max_uncompressed_bytes(self) -> int:
-        return self.max_uncompressed_mb * 1024 * 1024
+    def google_token_path(self) -> Path:
+        return self.google_token_file or Path(self.data_dir) / "google-token.json"
 
     @property
     def token_ttl_seconds(self) -> int:

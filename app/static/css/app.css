@@ -69,7 +69,17 @@ main { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
 
 label { display: block; font-weight: 600; margin-bottom: 6px; }
 
-input[type="password"], input[type="file"] {
+pre.command {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+
+a { color: var(--accent); }
+
+input[type="password"], input[type="file"], input[type="url"] {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -112,4 +122,6 @@ th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--bor
 th { color: var(--muted); font-weight: 600; }
 
 .muted { color: var(--muted); }
+.status-ok { color: var(--ok); font-weight: 600; }
+.status-warn { color: var(--danger); font-weight: 600; }
 .hidden { display: none !important; }

@@ -24,13 +24,24 @@
     </section>
 
     <div id="dashboard" class="hidden">
+      <section class="card" aria-live="polite">
+        <h2>Google 授權</h2>
+        <p id="google-status" class="muted">讀取中…</p>
+        <div id="google-help" class="hidden">
+          <p class="muted">請在專案資料夾的終端機執行以下指令，於瀏覽器登入要讀寫學習單的 Google 帳號並同意授權，完成後重新整理本頁：</p>
+          <pre class="command"><code id="google-command">python -m app google-login</code></pre>
+        </div>
+        <div class="row"><button id="google-refresh" type="button">重新檢查</button></div>
+      </section>
+
       <section class="card">
         <h2>匯入學習單</h2>
-        <p class="muted">請先在 Google Sheets 選擇「檔案 → 下載 → Microsoft Excel (.xlsx)」，再選擇下載的檔案。</p>
+        <p class="muted">貼上 Google 試算表的網址（瀏覽器網址列中 <code>https://docs.google.com/spreadsheets/d/…</code> 的完整網址）。試算表必須已共用給上方授權的 Google 帳號。</p>
         <form id="upload-form">
-          <label for="file">學習單檔案（.xlsx）</label>
-          <input id="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-          <div class="row"><button id="upload-button" class="primary" type="submit">上傳並檢查</button></div>
+          <label for="sheet-url">Google 試算表網址</label>
+          <input id="sheet-url" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+                 placeholder="https://docs.google.com/spreadsheets/d/…/edit" required>
+          <div class="row"><button id="upload-button" class="primary" type="submit">讀取並檢查</button></div>
         </form>
         <div id="upload-message" class="message hidden" role="alert"></div>
       </section>
@@ -60,7 +71,7 @@
         <p id="worksheets-empty" class="muted">尚未匯入任何學習單。</p>
         <div class="table-wrap">
           <table id="worksheets-table" class="hidden">
-            <thead><tr><th>編號</th><th>檔名</th><th>題數</th><th>題組數</th><th>確認時間</th></tr></thead>
+            <thead><tr><th>編號</th><th>試算表</th><th>題數</th><th>題組數</th><th>確認時間</th></tr></thead>
             <tbody id="worksheets-rows"></tbody>
           </table>
         </div>

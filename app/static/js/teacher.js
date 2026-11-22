@@ -28,6 +28,41 @@ function showMessage(box, kind, message, details = []) {
   }
 }
 
+function linkCell(text, href) {
+  const td = document.createElement("td");
+  const link = document.createElement("a");
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = text;
+  td.appendChild(link);
+  return td;
+}
+
+async function refreshGoogleStatus() {
+  const text = $("google-status");
+  try {
+    const status = await api.request("GET", "/api/google/status");
+    $("google-command").textContent = status.loginCommand;
+    text.replaceChildren();
+    const strong = document.createElement("span");
+    if (status.authorized) {
+      strong.className = "status-ok";
+      strong.textContent = `已授權 Google 帳號：${status.account ?? "（無法取得帳號 email）"}`;
+    } else if (!status.configured) {
+      strong.className = "status-warn";
+      strong.textContent = "尚未設定 Google OAuth 用戶端，請依 README 建立用戶端設定檔後執行登入指令。";
+    } else {
+      strong.className = "status-warn";
+      strong.textContent = "尚未完成 Google 授權";
+    }
+    text.appendChild(strong);
+    show($("google-help"), !status.authorized);
+  } catch (error) {
+    text.textContent = error.message;
+  }
+}
+
 function showLogin() {
   show($("login-view"), true);
   show($("dashboard"), false);
@@ -40,7 +75,7 @@ async function showDashboard() {
   show($("login-view"), false);
   show($("dashboard"), true);
   show($("logout"), true);
-  await refreshWorksheets();
+  await Promise.all([refreshGoogleStatus(), refreshWorksheets()]);
 }
 
 function groupText(question) {
@@ -49,7 +84,7 @@ function groupText(question) {
 
 function renderPreview(preview) {
   currentPreview = preview;
-  $("preview-filename").textContent = preview.filename;
+  $("preview-filename").textContent = preview.spreadsheetTitle;
   $("preview-count").textContent = `共 ${preview.questionCount} 題`;
   $("preview-groups").textContent = `${preview.groupCount} 個題組`;
   const rows = preview.questions.map((q) => {
@@ -74,8 +109,8 @@ async function refreshWorksheets() {
   const rows = data.worksheets.map((ws) => {
     const tr = document.createElement("tr");
     const confirmed = new Date(ws.confirmedAt).toLocaleString("zh-TW");
-    tr.append(cell(ws.id), cell(ws.filename), cell(ws.questionCount), cell(ws.groupCount),
-      cell(confirmed));
+    tr.append(cell(ws.id), linkCell(ws.title, ws.spreadsheetUrl), cell(ws.questionCount),
+      cell(ws.groupCount), cell(confirmed));
     return tr;
   });
   $("worksheets-rows").replaceChildren(...rows);
@@ -110,16 +145,14 @@ $("upload-form").addEventListener("submit", async (event) => {
   const box = $("upload-message");
   show(box, false);
   clearPreview();
-  const file = $("file").files[0];
-  if (!file) {
-    showMessage(box, "error", "請選擇要上傳的檔案");
+  const url = $("sheet-url").value.trim();
+  if (!url) {
+    showMessage(box, "error", "請輸入有效的 Google 試算表網址");
     return;
   }
-  const form = new FormData();
-  form.append("file", file);
   $("upload-button").disabled = true;
   try {
-    renderPreview(await api.request("POST", "/api/worksheets/previews", { form }));
+    renderPreview(await api.request("POST", "/api/worksheets/previews", { json: { url } }));
   } catch (error) {
     showMessage(box, "error", error.message, error.details);
   } finally {
@@ -133,7 +166,7 @@ $("confirm").addEventListener("click", async () => {
   try {
     const ws = await api.request("POST",
       `/api/worksheets/previews/${encodeURIComponent(currentPreview.previewId)}/confirm`);
-    showMessage(box, "ok", `已匯入「${ws.filename}」，共 ${ws.questionCount} 題。`);
+    showMessage(box, "ok", `已匯入「${ws.title}」，共 ${ws.questionCount} 題。`);
     clearPreview();
     $("upload-form").reset();
     await refreshWorksheets();
@@ -154,8 +187,10 @@ $("cancel").addEventListener("click", async () => {
   } catch {
     /* 預覽已失效時不需要額外處理 */
   }
-  $("file").focus();
+  $("sheet-url").focus();
 });
+
+$("google-refresh").addEventListener("click", refreshGoogleStatus);
 
 window.addEventListener("buzzer:session-expired", (event) => {
   clearPreview();

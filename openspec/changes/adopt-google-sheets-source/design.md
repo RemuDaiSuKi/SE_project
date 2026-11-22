@@ -82,6 +82,7 @@ class SheetsGateway(Protocol):
 | Google 回 404 | `not_found` | 404 |
 | Google 回 403 且原因為 `SERVICE_DISABLED` / `accessNotConfigured` | `api_disabled` | 502 |
 | 其他 403 | `forbidden` | 403 |
+| Google 回 400 且狀態為 `FAILED_PRECONDITION`（雲端硬碟中的 Excel 檔等非試算表格式） | `not_spreadsheet` | 400 |
 | 連線失敗、逾時 | `network` | 502 |
 | 429、5xx、其他非預期回應 | `unavailable` | 502 |
 
