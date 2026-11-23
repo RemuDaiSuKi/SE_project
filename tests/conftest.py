@@ -12,7 +12,7 @@ from app.config import Settings
 from app.main import create_app
 from app.results.contract import FinalResultLookup
 
-from .fake_google import FakeGoogleAuth, FakeSheetsGateway, sheet_url
+from .fake_google import FakeSheetsGateway, sheet_url
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BASE_URL = "http://127.0.0.1:8000"
@@ -92,21 +92,14 @@ def gateway() -> FakeSheetsGateway:
 
 
 @pytest.fixture
-def google_auth() -> FakeGoogleAuth:
-    return FakeGoogleAuth()
-
-
-@pytest.fixture
 def make_client(settings: Settings, clock: FakeClock, results: FakeResultSource,
-                gateway: FakeSheetsGateway, google_auth: FakeGoogleAuth):
+                gateway: FakeSheetsGateway):
     clients: list[TestClient] = []
 
     def factory(*, settings_override: Settings | None = None, raise_server_exceptions: bool = True,
-                gateway_override: object | None = None, google_auth_override: object | None = None
-                ) -> TestClient:
+                gateway_override: object | None = None) -> TestClient:
         app = create_app(settings_override or settings, clock=clock, result_source=results,
-                         gateway=gateway_override or gateway,  # type: ignore[arg-type]
-                         google_auth=google_auth_override or google_auth)  # type: ignore[arg-type]
+                         gateway=gateway_override or gateway)  # type: ignore[arg-type]
         client = TestClient(app, base_url=BASE_URL, raise_server_exceptions=raise_server_exceptions)
         clients.append(client)
         return client

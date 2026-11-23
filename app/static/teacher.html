@@ -24,19 +24,9 @@
     </section>
 
     <div id="dashboard" class="hidden">
-      <section class="card" aria-live="polite">
-        <h2>Google 授權</h2>
-        <p id="google-status" class="muted">讀取中…</p>
-        <div id="google-help" class="hidden">
-          <p class="muted">請在專案資料夾的終端機執行以下指令，於瀏覽器登入要讀寫學習單的 Google 帳號並同意授權，完成後重新整理本頁：</p>
-          <pre class="command"><code id="google-command">python -m app google-login</code></pre>
-        </div>
-        <div class="row"><button id="google-refresh" type="button">重新檢查</button></div>
-      </section>
-
       <section class="card">
         <h2>匯入學習單</h2>
-        <p class="muted">貼上 Google 試算表的網址（瀏覽器網址列中 <code>https://docs.google.com/spreadsheets/d/…</code> 的完整網址）。試算表必須已共用給上方授權的 Google 帳號。</p>
+        <p class="muted">貼上 Google 試算表的網址（瀏覽器網址列中 <code>https://docs.google.com/spreadsheets/d/…</code> 的完整網址）或試算表 ID。登入指令所授權的 Google 帳號必須能開啟這份試算表，寫回時需要編輯權限。</p>
         <form id="upload-form">
           <label for="sheet-url">Google 試算表網址</label>
           <input id="sheet-url" type="url" inputmode="url" autocomplete="off" spellcheck="false"

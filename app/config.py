@@ -8,7 +8,7 @@ from pydantic import Field, SecretStr, ValidationError, field_validator, model_v
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PREFIX = "BUZZER_"
-LISTEN_HOST = "127.0.0.1"  # 規格要求只監聽本機，刻意不提供設定
+DEFAULT_HOST = "127.0.0.1"
 
 
 class Settings(BaseSettings):
@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     )
 
     teacher_password: SecretStr | None = None
+    host: str = DEFAULT_HOST
     port: int = Field(default=8000, ge=1, le=65535)
     data_dir: Path = Path("./data")
 
@@ -27,22 +28,26 @@ class Settings(BaseSettings):
 
     google_client_secrets: Path | None = None   # 未設定時為 <資料目錄>/google-client-secret.json
     google_token_file: Path | None = None       # 未設定時為 <資料目錄>/google-token.json
-    google_timeout_seconds: float = Field(default=20, gt=0, le=300)
+    google_timeout_seconds: float = Field(default=10, gt=0, le=300)
 
     label_no: str = "題號"
     label_question: str = "題目"
     label_answer: str = "作答"
 
+    # 老師登入：全體共用一個失敗計數（與 SpecKit 組一致）
+    login_max_failures: int = Field(default=5, ge=1, le=1000)
+    login_lock_seconds: int = Field(default=300, ge=1, le=86_400)
+    # 以視窗為單位的鎖定：保留給組別代碼輸入（搶答活動 change）
     lockout_max_failures: int = Field(default=5, ge=1, le=1000)
     lockout_seconds: int = Field(default=60, ge=1, le=86_400)
-    token_ttl_hours: int = Field(default=12, ge=1, le=24 * 30)
+    token_ttl_hours: int = Field(default=8, ge=1, le=24 * 30)
 
-    @field_validator("label_no", "label_question", "label_answer")
+    @field_validator("label_no", "label_question", "label_answer", "host")
     @classmethod
-    def _label_not_blank(cls, value: str) -> str:
+    def _not_blank(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("label must not be blank")
+            raise ValueError("value must not be blank")
         return value
 
     @model_validator(mode="after")

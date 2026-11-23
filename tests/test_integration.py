@@ -11,7 +11,7 @@ from app.google.auth import GoogleAuth
 from app.google.gateway import GoogleSheetsGateway
 
 from .conftest import FIXTURES, login, register_window
-from .fake_google import FakeGoogleAuth, sheet_url
+from .fake_google import sheet_url
 from .results_helpers import rec, result, single, units_for_sample_a
 from .sheets_json import workbook_to_sheets_json
 
@@ -82,7 +82,7 @@ def test_full_flow_never_logs_secrets(make_client, password, results, tmp_path, 
     session = RecordingSession(doc)
     gateway = GoogleSheetsGateway(auth, session_factory=lambda creds: (
         session.tokens_seen.append(creds.token) or session))
-    client = make_client(gateway_override=gateway, google_auth_override=auth)
+    client = make_client(gateway_override=gateway)
 
     tokens: list[str] = []
     window = register_window(client)
@@ -92,8 +92,6 @@ def test_full_flow_never_logs_secrets(make_client, password, results, tmp_path, 
     tokens.append(login_response.json()["token"])
     headers = {"Authorization": f"Bearer {tokens[0]}"}
 
-    status = client.get("/api/google/status", headers=headers).json()
-    assert status["authorized"] and status["account"] == "teacher@example.com"
     preview = client.post("/api/worksheets/previews", headers=headers,
                           json={"url": sheet_url(spreadsheet_id)}).json()
     ws_id = client.post(f"/api/worksheets/previews/{preview['previewId']}/confirm",
@@ -129,7 +127,6 @@ def _snapshot(client) -> tuple:
 TEACHER_ENDPOINTS = [
     ("GET", "/api/teacher/me"),
     ("POST", "/api/teacher/logout"),
-    ("GET", "/api/google/status"),
     ("POST", "/api/worksheets/previews"),
     ("POST", "/api/worksheets/previews/{pid}/confirm"),
     ("DELETE", "/api/worksheets/previews/{pid}"),
@@ -175,7 +172,7 @@ def test_permission_matrix(client, teacher, results, gateway, method, path, cred
 def test_unauthorized_google_import_message(make_client, password, gateway):
     from app.google.errors import SheetsError
 
-    client = make_client(google_auth_override=FakeGoogleAuth(authorized=False))
+    client = make_client()
     headers = login(client, password)
     gateway.fetch_error = SheetsError("not_authorized")
     response = client.post("/api/worksheets/previews", headers=headers,
@@ -186,7 +183,9 @@ def test_unauthorized_google_import_message(make_client, password, gateway):
 def test_env_example_and_gitignore():
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert "BUZZER_TEACHER_PASSWORD=change-me" in example
-    assert "BUZZER_GOOGLE_TIMEOUT_SECONDS" in example
+    for name in ("BUZZER_GOOGLE_TIMEOUT_SECONDS", "BUZZER_HOST", "BUZZER_LOGIN_MAX_FAILURES",
+                 "BUZZER_LOGIN_LOCK_SECONDS"):
+        assert name in example
     ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     for pattern in (".env", "data/", "client_secret*.json", "google-client-secret*.json",
                     "google-token*.json"):

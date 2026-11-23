@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from app.security import ROLE_TEACHER, SessionStore, WindowRegistry, bearer_token, password_matches
+from app.security import (
+    ROLE_TEACHER,
+    LoginLimiter,
+    SessionStore,
+    WindowRegistry,
+    bearer_token,
+    password_matches,
+)
 
 from .conftest import FakeClock, login, register_window
 
@@ -35,6 +42,26 @@ def test_success_resets_failures():
     windows.record_failure(window)
     windows.record_failure(window)
     assert windows.lock_remaining(window) == 0
+
+
+def test_login_limiter_is_global_and_resets():
+    clock = FakeClock()
+    limiter = LoginLimiter(max_failures=5, lock_seconds=300, clock=clock)
+    for _ in range(4):
+        limiter.record_failure()
+    assert limiter.lock_remaining() == 0
+    limiter.record_success()  # 成功歸零
+    for _ in range(4):
+        limiter.record_failure()
+    assert limiter.lock_remaining() == 0
+    limiter.record_failure()
+    assert limiter.lock_remaining() == 300
+    clock.advance(299.5)
+    assert limiter.lock_remaining() == 1
+    clock.advance(0.5)
+    assert limiter.lock_remaining() == 0
+    limiter.record_failure()  # 鎖定時計數已歸零，重新計算
+    assert limiter.lock_remaining() == 0
 
 
 def test_token_expiry_and_revoke():
@@ -80,20 +107,32 @@ def test_wrong_password(client):
     assert "token" not in response.json()
 
 
-def test_lockout_per_window(client, password, clock):
+def test_lockout_shared_by_all_windows(client, password, clock):
+    # 與 SpecKit 組一致：老師登入的失敗次數全體共用，連續 5 次鎖定 300 秒
     w1, w2 = register_window(client), register_window(client)
-    for _ in range(5):
+    for _ in range(3):
         assert _login(client, w1, "wrong").status_code == 400
+    for _ in range(2):
+        assert _login(client, w2, "wrong").status_code == 400
     locked = _login(client, w1, password)
     assert locked.status_code == 429
     error = locked.json()["error"]
-    assert error["code"] == "LOCKED" and error["retryAfterSeconds"] == 60
-    assert "60 秒後再試" in error["message"]
-    assert locked.headers["retry-after"] == "60"
-    # 其他視窗不受影響
+    assert error["code"] == "LOCKED" and error["retryAfterSeconds"] == 300
+    assert error["message"] == "密碼錯誤次數過多，請於 300 秒後再試"
+    assert locked.headers["retry-after"] == "300"
+    # 其他視窗也被鎖定
+    assert _login(client, w2, password).status_code == 429
+    clock.advance(300)
     assert _login(client, w2, password).status_code == 200
-    clock.advance(60)
-    assert _login(client, w1, password).status_code == 200
+
+
+def test_login_lock_configurable(make_client, settings, password, clock):
+    client = make_client(settings_override=settings.model_copy(
+        update={"login_max_failures": 2, "login_lock_seconds": 30}))
+    window = register_window(client)
+    for _ in range(2):
+        _login(client, window, "wrong")
+    assert _login(client, window, password).json()["error"]["retryAfterSeconds"] == 30
 
 
 def test_unknown_window(client, password):

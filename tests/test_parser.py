@@ -7,7 +7,7 @@ import pytest
 
 from app.google.convert import grid_from_sheets_api
 from app.worksheet.model import ImportRejected, Labels
-from app.worksheet.parser import EMPTY_SPREADSHEET_MESSAGE, format_value, is_blank, parse_grid
+from app.worksheet.parser import format_value, is_blank, parse_grid
 
 from . import builders
 from .conftest import FIXTURES
@@ -92,9 +92,10 @@ def test_equivalent_builders_match_real_samples():
 
 
 def test_alt_layout():
+    # 作答範圍內有兩段文字時，子題標籤只取第一個（與 SpecKit 組一致）
     parsed = parse(builders.alt_layout())
     assert [(q.no, q.cell_ref, q.source_no, q.sub_label) for q in parsed.questions] == [
-        (1, "E3", "1", "答： 。"), (2, "E5", "2", "答： 。"), (3, "E7", "3", "答： 。")]
+        (1, "E3", "1", "答："), (2, "E5", "2", "答："), (3, "E7", "3", "答：")]
 
 
 def test_multi_sheet_skips_sheet_without_header_and_numbers_across_sheets():
@@ -119,22 +120,22 @@ def test_whitespace_only_answer_is_blank():
     assert parse(builders.whitespace_answer()).questions[0].cell_ref == "G5"
 
 
-def test_vertical_question_merge_makes_both_rows_questions():
-    parsed = parse(builders.vertical_question_merge())
-    assert summary(parsed)[:2] == [(1, "學習單", "H5", "1", "（1）", 1),
-                                   (2, "學習單", "H6", "1", "（2）", 1)]
-    assert parsed.question_count == 3
+def test_vertical_question_merge_counts_only_top_row():
+    # 縱向合併的題目儲存格只屬於最上面那列，所以第 6 列不是題目列，題組範圍不完整
+    error = rejected(builders.vertical_question_merge())
+    assert error.summary == ("工作表「學習單」題組範圍 B5:B6 的第 6 列不是題目列，"
+                             "題組的每一列都必須是題目列")
 
 
 def test_section_title_merge_is_not_a_question_row():
     assert parse(builders.section_title_row()).question_count == 6
 
 
-def test_merge_covering_one_question_is_not_a_group():
-    parsed = parse(builders.merge_covering_spacer())
-    assert parsed.group_count == 0
-    assert [(q.no, q.cell_ref, q.group_no) for q in parsed.questions] == [(1, "G5", None),
-                                                                          (2, "G8", None)]
+def test_number_merge_covering_spacer_row_rejected():
+    # 題號欄縱向合併的每一列都必須是題目列，即使只涵蓋一個題目列也一樣（與 SpecKit 組一致）
+    error = rejected(builders.merge_covering_spacer())
+    assert error.summary == ("工作表「學習單」題組範圍 B5:B6 的第 6 列不是題目列，"
+                             "題組的每一列都必須是題目列")
 
 
 def test_unlabeled_source_number():
@@ -147,8 +148,9 @@ def test_unlabeled_source_number():
 # ---------------------------------------------------------------- errors
 
 
-def test_blank_spreadsheet_rejected():
-    assert rejected(builders.blank_workbook()).summary == EMPTY_SPREADSHEET_MESSAGE == "試算表沒有任何內容"
+def test_blank_spreadsheet_reports_missing_header():
+    assert rejected(builders.blank_workbook()).summary == \
+        "找不到同時包含『題號』『題目』『作答』的表頭列"
 
 
 def test_no_header():
@@ -170,13 +172,21 @@ def test_real_prefilled_sample():
         "工作表「學習單」第 5 列：作答欄沒有空白填空格"
 
 
-def test_two_blank_cells():
-    error = rejected(builders.two_blanks())
-    assert error.summary == "工作表「學習單」第 9 列：作答欄有 2 個填空格（G9、H9）"
+def test_adjacent_blank_cells_are_one_blank():
+    # 相鄰的空白儲存格算同一個填空格，以最左邊的儲存格代表（與 SpecKit 組一致）
+    parsed = parse(builders.two_blanks())
+    assert [(q.no, q.cell_ref) for q in parsed.questions] == [(1, "G5"), (2, "G9")]
 
 
-def test_formula_cell_is_not_blank():
-    assert rejected(builders.formula_answer()).summary == "工作表「學習單」第 5 列：作答欄沒有空白填空格"
+def test_separated_blank_cells_rejected():
+    error = rejected(builders.split_blanks())
+    assert error.summary == ("工作表「學習單」第 9 列：作答欄有 2 個互不相連的空白區（G9、I9），"
+                             "每個題目列只能有一個填空格")
+
+
+def test_formula_showing_empty_text_is_blank():
+    # 以顯示值判斷：公式 =""  顯示為空白，所以是填空格（與 SpecKit 組一致）
+    assert parse(builders.formula_answer()).questions[0].cell_ref == "G5"
 
 
 def test_vertical_answer_merge_rejected():
@@ -186,8 +196,21 @@ def test_vertical_answer_merge_rejected():
 
 def test_group_with_non_question_row():
     error = rejected(builders.group_with_blank_row())
-    assert error.summary == "工作表「學習單」題組範圍 B5:B7 包含非題目列（第 7 列）"
+    assert error.summary == ("工作表「學習單」題組範圍 B5:B7 的第 7 列不是題目列，"
+                             "題組的每一列都必須是題目列")
     assert error.issues[0].location == "B5:B7"
+
+
+def test_each_non_question_row_in_group_is_one_issue():
+    workbook = builders.group_with_blank_row()
+    ws = workbook.active
+    ws.unmerge_cells("B5:B7")
+    ws.merge_cells("B5:B8")
+    error = rejected(workbook)
+    assert error.total == 2
+    assert [i.message for i in error.issues] == [
+        "工作表「學習單」題組範圍 B5:B8 的第 7 列不是題目列，題組的每一列都必須是題目列",
+        "工作表「學習單」題組範圍 B5:B8 的第 8 列不是題目列，題組的每一列都必須是題目列"]
 
 
 def test_question_limit():
@@ -208,10 +231,18 @@ def test_multiple_errors_reported_together():
     assert [i.location for i in error.issues] == ["第 7 列", "第 9 列"]
 
 
-def test_error_list_capped_at_50():
+def test_all_errors_reported():
     workbook = builders.many_questions(80)
     ws = workbook.active
     for row in range(2, 82):
         ws[f"C{row}"] = "已填"
     error = rejected(workbook)
-    assert error.total == 80 and len(error.issues) == 50
+    assert error.total == 80 and len(error.issues) == 80
+
+
+def test_row_errors_take_precedence_over_question_limit():
+    # 檢查順序與 SpecKit 組一致：先回報逐列問題，沒有問題才檢查題數上限
+    workbook = builders.many_questions(11)
+    workbook.active["C2"] = "已填"
+    error = rejected(workbook, max_questions=10)
+    assert error.summary == "工作表「學習單」第 2 列：作答欄沒有空白填空格"

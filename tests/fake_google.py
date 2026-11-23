@@ -1,4 +1,4 @@
-"""測試用的假 Google 存取層與授權狀態（不連網）。"""
+"""測試用的假 Google 存取層（不連網）。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from typing import Any
 
 import openpyxl
 
-from app.google.auth import AuthStatus
 from app.google.convert import grid_from_sheets_api
 from app.google.errors import SheetsError
 from app.google.gateway import CellWrite
@@ -54,7 +53,8 @@ class FakeSheetsGateway:
         values = rows[row - 1].setdefault("values", [])
         while len(values) < col:
             values.append({})
-        values[col - 1] = {} if text is None else {"userEnteredValue": {"stringValue": text}}
+        # 以 RAW 寫入的文字原樣顯示
+        values[col - 1] = {} if not text else {"formattedValue": text}
 
     def rename_sheet(self, spreadsheet_id: str, old: str, new: str) -> None:
         self._sheet(spreadsheet_id, old)["properties"]["title"] = new
@@ -94,14 +94,3 @@ class FakeSheetsGateway:
         self.writes.append((spreadsheet_id, list(writes)))
         for write in writes:
             self.set_value(spreadsheet_id, write.sheet_title, write.cell_ref, write.text)
-
-
-class FakeGoogleAuth:
-    def __init__(self, configured: bool = True, authorized: bool = True,
-                 account: str | None = "teacher@example.com") -> None:
-        self.configured = configured
-        self.authorized = authorized
-        self.account = account
-
-    def status(self) -> AuthStatus:
-        return AuthStatus(self.configured, self.authorized, self.account if self.authorized else None)

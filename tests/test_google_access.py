@@ -10,7 +10,7 @@ import requests
 from google.auth.exceptions import RefreshError, TransportError
 
 from app.config import Settings
-from app.google.auth import GoogleAuth, save_token
+from app.google.auth import AuthStatus, GoogleAuth, save_token, startup_problem
 from app.google.errors import MESSAGES, SheetsError
 from app.google.gateway import FETCH_FIELDS, CellWrite, GoogleSheetsGateway, classify_response
 from app.google.login import run_login
@@ -24,11 +24,17 @@ SHEET_ID = "1PXXwWiBKJNpPkLRoJLMzZWsAh4Jzn2bThHTeRAiq3Hg"
 @pytest.mark.parametrize("text,expected", [
     (f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid=0", SHEET_ID),
     (f"https://docs.google.com/spreadsheets/d/{SHEET_ID}", SHEET_ID),
-    (f"  https://docs.google.com/spreadsheets/u/1/d/{SHEET_ID}/edit?usp=sharing  ", SHEET_ID),
+    (f"  https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit?usp=sharing  ", SHEET_ID),
     (SHEET_ID, SHEET_ID),
+    # 規則與 SpecKit 組一致：只接受 https://docs.google.com/spreadsheets/d/ 開頭的網址或純 ID
+    (f"https://docs.google.com/spreadsheets/u/1/d/{SHEET_ID}/edit", None),
+    (f"http://docs.google.com/spreadsheets/d/{SHEET_ID}/edit", None),
+    (f"https://example.com/spreadsheets/d/{SHEET_ID}", None),
     ("https://docs.google.com/spreadsheets/d/e/2PACX-1vabcdefghijklmnopqrstuvwxyz/pubhtml", None),
     ("https://example.com/abc", None),
     ("short-id", None),
+    ("a" * 101, None),
+    (f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#" + "x" * 2100, None),
     ("", None),
     ("   ", None),
     (None, None),
@@ -121,7 +127,24 @@ def test_refresh_network_failure(tmp_path):
     auth = _auth(tmp_path, {"refresh_token": "r", "valid": False, "fail": "transport"})
     with pytest.raises(SheetsError) as info:
         auth.credentials()
-    assert info.value.kind == "network"
+    assert info.value.kind == "unavailable"
+
+
+def test_account_for_error_messages(tmp_path):
+    auth = _auth(tmp_path, None)
+    assert auth.account() is None
+    save_token(tmp_path / "token.json", FakeCredentials({"token": "a", "refresh_token": "r",
+                                                         "valid": True}), "t@example.com")
+    assert auth.account() == "t@example.com"
+
+
+def test_startup_problem():
+    hint = "python -m app google-login"
+    missing = startup_problem(AuthStatus(False, False, None), "BUZZER_GOOGLE_CLIENT_SECRETS", hint)
+    assert "找不到 Google OAuth 用戶端設定檔（BUZZER_GOOGLE_CLIENT_SECRETS），伺服器無法啟動" in missing
+    assert startup_problem(AuthStatus(True, False, None), "X", hint) == \
+        "尚未完成 Google 授權，伺服器無法啟動。請先執行 python -m app google-login"
+    assert startup_problem(AuthStatus(True, True, "t@example.com"), "X", hint) is None
 
 
 def test_missing_refresh_token_is_auth_expired(tmp_path):
@@ -173,13 +196,18 @@ class FakeSession:
 
 
 class StubAuth:
-    def __init__(self, error: SheetsError | None = None) -> None:
+    def __init__(self, error: SheetsError | None = None,
+                 account: str | None = "teacher@example.com") -> None:
         self.error = error
+        self._account = account
 
     def credentials(self) -> object:
         if self.error:
             raise self.error
         return "creds"
+
+    def account(self) -> str | None:
+        return self._account
 
 
 def _gateway(response: object, auth: StubAuth | None = None) -> tuple[GoogleSheetsGateway, FakeSession]:
@@ -192,7 +220,7 @@ def _gateway(response: object, auth: StubAuth | None = None) -> tuple[GoogleShee
 def test_fetch_request_and_conversion():
     body = {"spreadsheetId": SHEET_ID, "properties": {"title": "範例"},
             "sheets": [{"properties": {"sheetId": 3, "title": "學習單"},
-                        "data": [{"rowData": [{"values": [{"userEnteredValue": {"stringValue": "x"}}]}]}]}]}
+                        "data": [{"rowData": [{"values": [{"formattedValue": "x"}]}]}]}]}
     gateway, session = _gateway(FakeResponse(200, body))
     grid = gateway.fetch(SHEET_ID)
     method, url, kwargs = session.calls[0]
@@ -226,11 +254,12 @@ def test_write_cells_noop_when_empty():
     (404, {"error": {"status": "NOT_FOUND", "message": "Requested entity was not found."}}, "not_found"),
     (403, {"error": {"status": "PERMISSION_DENIED", "message": "The caller does not have permission"}},
      "forbidden"),
+    # 與 SpecKit 組一致：403 一律是沒有權限，其他非 401/404 的錯誤一律是暫時無法使用
     (403, {"error": {"status": "PERMISSION_DENIED",
-                     "details": [{"reason": "SERVICE_DISABLED"}]}}, "api_disabled"),
-    (403, {"error": {"errors": [{"reason": "accessNotConfigured"}]}}, "api_disabled"),
+                     "details": [{"reason": "SERVICE_DISABLED"}]}}, "forbidden"),
+    (403, {"error": {"errors": [{"reason": "accessNotConfigured"}]}}, "forbidden"),
     (400, {"error": {"status": "FAILED_PRECONDITION",
-                     "message": "This operation is not supported for this document"}}, "not_spreadsheet"),
+                     "message": "This operation is not supported for this document"}}, "unavailable"),
     (400, {"error": {"status": "INVALID_ARGUMENT"}}, "unavailable"),
     (429, {}, "unavailable"),
     (503, ValueError("not json"), "unavailable"),
@@ -241,13 +270,28 @@ def test_error_classification(status, body, kind):
     assert info.value.kind == kind
     # 訊息只來自固定的繁中訊息，不含 Google 原始內容
     assert "permission" not in info.value.message.lower()
-    assert info.value.message == MESSAGES[kind][1]
+    assert info.value.message == MESSAGES[kind][1].format(account="")
+
+
+def test_forbidden_message_names_account():
+    with pytest.raises(SheetsError) as info:
+        classify_response(FakeResponse(403, {}), "teacher@example.com")
+    assert info.value.message == (
+        "目前登入的 Google 帳號（teacher@example.com）沒有這份試算表的編輯權限，"
+        "請改用有權限的帳號重新登入，或請擁有者把試算表共用給這個帳號（編輯者）")
+
+
+def test_gateway_forbidden_uses_authorized_account():
+    gateway, _ = _gateway(FakeResponse(403, {}), StubAuth(account="owner@example.com"))
+    with pytest.raises(SheetsError) as info:
+        gateway.fetch(SHEET_ID)
+    assert "（owner@example.com）" in info.value.message
 
 
 @pytest.mark.parametrize("exc,kind", [
-    (requests.exceptions.ConnectionError("down"), "network"),
-    (requests.exceptions.Timeout("slow"), "network"),
-    (TransportError("dns"), "network"),
+    (requests.exceptions.ConnectionError("down"), "unavailable"),
+    (requests.exceptions.Timeout("slow"), "unavailable"),
+    (TransportError("dns"), "unavailable"),
     (RefreshError("revoked"), "auth_expired"),
 ])
 def test_transport_errors(exc, kind):

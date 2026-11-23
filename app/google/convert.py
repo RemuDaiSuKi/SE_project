@@ -11,23 +11,15 @@ from typing import Any
 
 from ..worksheet.grid import Pos, SheetGrid, SpreadsheetGrid
 
-ERROR_VALUE = "#ERROR"
+def _value(cell: Mapping[str, Any]) -> str | None:
+    """儲存格的顯示值（formattedValue）；沒有顯示內容時為 None。
 
-
-def _value(entered: Mapping[str, Any] | None) -> object:
-    if not entered:
+    與 SpecKit 組一致：公式以計算後的顯示結果判斷，例如 `=""` 視為空白。
+    """
+    text = cell.get("formattedValue")
+    if text is None or text == "":
         return None
-    if "formulaValue" in entered:
-        return str(entered["formulaValue"])
-    if "stringValue" in entered:
-        return str(entered["stringValue"])
-    if "numberValue" in entered:
-        return float(entered["numberValue"])
-    if "boolValue" in entered:
-        return bool(entered["boolValue"])
-    if "errorValue" in entered:
-        return ERROR_VALUE
-    return None
+    return str(text)
 
 
 def _sheet(sheet: Mapping[str, Any]) -> SheetGrid:
@@ -42,7 +34,7 @@ def _sheet(sheet: Mapping[str, Any]) -> SheetGrid:
             if cells:
                 max_row = max(max_row, row0 + i + 1)
             for j, cell in enumerate(cells):
-                value = _value((cell or {}).get("userEnteredValue"))
+                value = _value(cell or {})
                 if value is not None:
                     values[(row0 + i + 1, col0 + j + 1)] = value
     merges = tuple(

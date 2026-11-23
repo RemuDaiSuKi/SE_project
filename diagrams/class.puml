@@ -66,13 +66,16 @@ package "學習單" {
     spreadsheet_url: str
     title: str
     parsed: ParsedWorksheet
-    created_at: float
   }
   class PreviewStore {
     add(...): Preview
-    take(id): Preview?
-    discard(id): bool
+    confirm(id, save): StoredWorksheet?
+    cancel(id): bool
   }
+  note right of PreviewStore
+    存在 SQLite（worksheet_previews），沒有期限；
+    狀態只能 pending → confirmed / cancelled 一次
+  end note
   class WorksheetStore {
     save(preview): StoredWorksheet
     get(id): StoredWorksheet?
@@ -83,7 +86,7 @@ package "學習單" {
   ParsedWorksheet *-- "many" QuestionGroup
   StoredWorksheet *-- ParsedWorksheet
   Preview *-- ParsedWorksheet
-  PreviewStore o-- "0..10" Preview
+  PreviewStore o-- "many" Preview
   WorksheetStore ..> StoredWorksheet
 }
 
@@ -100,6 +103,7 @@ package "Google 存取" {
     client_secrets_file: Path
     token_file: Path
     credentials(): Credentials
+    account(): str?
     status(): AuthStatus
   }
   class AuthStatus {
@@ -113,8 +117,8 @@ package "Google 存取" {
     text: str
   }
   class SheetsError {
-    kind: not_authorized | auth_expired | not_found | forbidden
-          | api_disabled | not_spreadsheet | network | unavailable
+    kind: not_authorized | auth_expired | not_found | forbidden | unavailable
+    account: str?
     message: str
   }
   SheetsGateway <|.. GoogleSheetsGateway

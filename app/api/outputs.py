@@ -13,6 +13,7 @@ from ..results.contract import ActivityResult, ContractViolation, validate_resul
 from ..results.csv_export import build_csv
 from ..security import Session
 from ..state import AppState, get_state, require_teacher
+from ..worksheet.model import Labels
 from ..worksheet.store import StoredWorksheet
 from ..worksheet.writeback import (
     STRUCTURE_MISMATCH_MESSAGE,
@@ -54,8 +55,11 @@ def writeback(activity_id: int, _: Session = Depends(require_teacher),
               state: AppState = Depends(get_state)) -> dict:
     result = _ended_result(state, activity_id, "只能對已結束的活動寫回答案")
     worksheet = _worksheet_for(state, result)
+    settings = state.settings
+    labels = Labels(settings.label_no, settings.label_question, settings.label_answer)
     try:
-        report = write_back(result, worksheet, state.gateway)  # SheetsError 由例外處理器轉換
+        # SheetsError 由例外處理器轉換
+        report = write_back(result, worksheet, state.gateway, labels, settings.max_questions)
     except StructureMismatch as exc:
         raise AppError(409, "STRUCTURE_MISMATCH", STRUCTURE_MISMATCH_MESSAGE,
                        details=[ErrorDetail(p) for p in exc.problems]) from None

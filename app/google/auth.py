@@ -39,6 +39,16 @@ class AuthStatus:
     account: str | None
 
 
+def startup_problem(status: AuthStatus, client_env: str, login_hint: str) -> str | None:
+    """伺服器啟動前的 Google 檢查：缺少用戶端設定檔或尚未授權時回傳繁中說明。"""
+    if not status.configured:
+        return (f"找不到 Google OAuth 用戶端設定檔（{client_env}），伺服器無法啟動。"
+                f"請依 README 設定後執行 {login_hint}")
+    if not status.authorized:
+        return f"尚未完成 Google 授權，伺服器無法啟動。請先執行 {login_hint}"
+    return None
+
+
 def save_token(path: Path, credentials: Any, account: str | None) -> None:
     """以原子性方式寫入授權檔（先寫暫存檔再取代）。"""
     data = {"account": account, "credentials": json.loads(credentials.to_json())}
@@ -98,11 +108,17 @@ class GoogleAuth:
                 logger.info("Google 授權更新失敗")
                 raise SheetsError("auth_expired") from None
             except TransportError:
-                raise SheetsError("network") from None
+                raise SheetsError("unavailable") from None
             save_token(self.token_path, creds, self._account)
             self._loaded_mtime = self.token_path.stat().st_mtime
             logger.info("Google 存取權杖已自動更新")
             return creds
+
+    def account(self) -> str | None:
+        """目前授權的帳號 email（用於沒有權限的錯誤訊息）；尚未授權時為 None。"""
+        with self._lock:
+            self._load_locked()
+            return self._account
 
     def status(self) -> AuthStatus:
         with self._lock:

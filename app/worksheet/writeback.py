@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from ..google.gateway import CellWrite, SheetsGateway
 from ..results.contract import ActivityResult, winning_answers
 from .grid import Pos, SpreadsheetGrid, split_ref
-from .model import ImportRejected, ParsedWorksheet
+from .model import ImportRejected, Labels, ParsedWorksheet
 from .parser import is_blank, parse_grid
 from .store import StoredWorksheet
 
@@ -27,16 +27,18 @@ class WritebackReport:
     skipped_filled: tuple[int, ...]
 
 
-def verify_structure(grid: SpreadsheetGrid, expected: ParsedWorksheet) -> None:
-    """重新讀取的試算表必須與匯入時的結構相同；填空格是否有內容不算結構差異。"""
-    problems: list[str] = []
-    names = {q.sheet_id: q.sheet_name for q in expected.questions}
-    for sheet_id, name in names.items():
-        if grid.sheet(sheet_id) is None:
-            problems.append(f"找不到工作表「{name}」（可能已被刪除）")
-    if problems:
-        raise StructureMismatch(problems)
+def _placement(q) -> tuple:  # noqa: ANN001
+    """結構比對的欄位：工作表 ID、工作表名稱、填空格與所屬題組（與 SpecKit 組一致）。"""
+    return (q.sheet_id, q.sheet_name, q.cell_ref, q.group_no)
 
+
+def verify_structure(grid: SpreadsheetGrid, expected: ParsedWorksheet, labels: Labels,
+                     max_questions: int | None = None) -> None:
+    """以目前的表頭設定重新解析試算表，比對每題的填空格位置。
+
+    填空格是否有內容不算結構差異。比對包含工作表名稱，所以匯入後改了分頁名稱也會被拒絕。
+    遇到第一個差異就停止，只回報一項。
+    """
     fills: dict[int, set[Pos]] = {}
     for q in expected.questions:
         fills.setdefault(q.sheet_id, set()).add(split_ref(q.cell_ref))
@@ -45,29 +47,23 @@ def verify_structure(grid: SpreadsheetGrid, expected: ParsedWorksheet) -> None:
         tuple(s.without(fills.get(s.sheet_id, set())) for s in grid.sheets),
     )
     try:
-        current = parse_grid(blanked, expected.labels)
+        current = parse_grid(blanked, labels, max_questions)
     except ImportRejected as exc:
-        problems.append("重新解析學習單失敗：" + exc.summary)
-        problems.extend(issue.message for issue in exc.issues if exc.total > 1)
-        raise StructureMismatch(problems[:50]) from None
+        raise StructureMismatch(["目前的學習單" + exc.issues[0].message]) from None
 
     if current.question_count != expected.question_count:
-        problems.append(f"題數不一致（匯入時 {expected.question_count} 題，"
-                        f"現在 {current.question_count} 題）")
+        raise StructureMismatch([f"題數由 {expected.question_count} 題變成 "
+                                 f"{current.question_count} 題"])
     for old, new in zip(expected.questions, current.questions):
-        if old.identity() != new.identity():
-            problems.append(f"第 {old.no} 題的位置、題號、子題標籤或題組不一致"
-                            f"（匯入時 {old.location}，現在 {new.location}）")
-    if [g.identity() for g in expected.groups] != [g.identity() for g in current.groups]:
-        problems.append("題組結構不一致")
-    if problems:
-        raise StructureMismatch(problems[:50])
+        if _placement(old) != _placement(new):
+            raise StructureMismatch([f"第 {old.no} 題原本在 {old.location}，現在在 {new.location}"])
 
 
 def write_back(result: ActivityResult, worksheet: StoredWorksheet,
-               gateway: SheetsGateway) -> WritebackReport:
+               gateway: SheetsGateway, labels: Labels,
+               max_questions: int | None = None) -> WritebackReport:
     grid = gateway.fetch(worksheet.spreadsheet_id)
-    verify_structure(grid, worksheet.parsed)
+    verify_structure(grid, worksheet.parsed, labels, max_questions)
 
     answers = winning_answers(result)
     writes: list[CellWrite] = []
@@ -83,8 +79,7 @@ def write_back(result: ActivityResult, worksheet: StoredWorksheet,
         if not is_blank(sheet.values.get(split_ref(question.cell_ref))):
             skipped.append(question.no)
             continue
-        # 以目前的工作表名稱組成範圍，工作表改名也能寫入
-        writes.append(CellWrite(sheet.title, question.cell_ref, answers[question.no]))
+        writes.append(CellWrite(question.sheet_name, question.cell_ref, answers[question.no]))
         written.append(question.no)
     if writes:
         gateway.write_cells(worksheet.spreadsheet_id, writes)

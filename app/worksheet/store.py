@@ -1,20 +1,39 @@
-"""匯入預覽（記憶體）與已確認學習單（SQLite）。"""
+"""匯入預覽與已確認學習單（皆存在 SQLite）。"""
 
 from __future__ import annotations
 
+import json
 import secrets
 import threading
-import time
-from collections import OrderedDict
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from typing import TypeVar
 
 from ..db import Database
-from ..security import Clock
 from .model import Labels, ParsedWorksheet, Question, QuestionGroup
 
-PREVIEW_TTL_SECONDS = 30 * 60
-MAX_PREVIEWS = 10
+T = TypeVar("T")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def parsed_to_json(parsed: ParsedWorksheet) -> str:
+    return json.dumps({"labels": asdict(parsed.labels),
+                       "questions": [asdict(q) for q in parsed.questions],
+                       "groups": [asdict(g) for g in parsed.groups]}, ensure_ascii=False)
+
+
+def parsed_from_json(text: str) -> ParsedWorksheet:
+    data = json.loads(text)
+    return ParsedWorksheet(
+        labels=Labels(**data["labels"]),
+        questions=tuple(Question(**q) for q in data["questions"]),
+        groups=tuple(QuestionGroup(**{**g, "question_nos": tuple(g["question_nos"])})
+                     for g in data["groups"]),
+    )
 
 
 @dataclass(frozen=True)
@@ -24,46 +43,62 @@ class Preview:
     spreadsheet_url: str
     title: str
     parsed: ParsedWorksheet
-    created_at: float
 
 
 class PreviewStore:
-    """未確認的匯入預覽：30 分鐘有效、最多 10 份，確認或取消後移除。"""
+    """未確認的匯入預覽：保存在資料庫、沒有有效期限，伺服器重啟後仍可確認。
 
-    def __init__(self, clock: Clock = time.monotonic, ttl_seconds: int = PREVIEW_TTL_SECONDS,
-                 max_items: int = MAX_PREVIEWS) -> None:
-        self._clock = clock
-        self._ttl = ttl_seconds
-        self._max = max_items
-        self._items: OrderedDict[str, Preview] = OrderedDict()
+    每份預覽只能從「待確認」變成「已確認」或「已取消」一次（與 SpecKit 組一致）。
+    """
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
         self._lock = threading.Lock()
-
-    def _purge(self) -> None:
-        now = self._clock()
-        for key in [k for k, p in self._items.items() if now - p.created_at >= self._ttl]:
-            del self._items[key]
 
     def add(self, spreadsheet_id: str, spreadsheet_url: str, title: str,
             parsed: ParsedWorksheet) -> Preview:
-        preview = Preview(secrets.token_urlsafe(16), spreadsheet_id, spreadsheet_url, title,
-                          parsed, self._clock())
-        with self._lock:
-            self._purge()
-            self._items[preview.preview_id] = preview
-            while len(self._items) > self._max:
-                self._items.popitem(last=False)
+        preview = Preview(secrets.token_urlsafe(16), spreadsheet_id, spreadsheet_url, title, parsed)
+        with self._db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO worksheet_previews (preview_id, spreadsheet_id, spreadsheet_url,"
+                " title, parsed_json, status, created_at) VALUES (?,?,?,?,?,'pending',?)",
+                (preview.preview_id, spreadsheet_id, spreadsheet_url, title,
+                 parsed_to_json(parsed), _now()),
+            )
         return preview
 
-    def take(self, preview_id: str) -> Preview | None:
-        """取出並移除；過期或不存在時為 None。"""
-        with self._lock:
-            self._purge()
-            return self._items.pop(preview_id, None)
+    def _pending(self, preview_id: str) -> Preview | None:
+        with self._db.read() as conn:
+            row = conn.execute(
+                "SELECT * FROM worksheet_previews WHERE preview_id = ? AND status = 'pending'",
+                (preview_id,)).fetchone()
+        if row is None:
+            return None
+        return Preview(row["preview_id"], row["spreadsheet_id"], row["spreadsheet_url"],
+                       row["title"], parsed_from_json(row["parsed_json"]))
 
-    def discard(self, preview_id: str) -> bool:
+    def _mark(self, preview_id: str, status: str) -> None:
+        with self._db.transaction() as conn:
+            conn.execute("UPDATE worksheet_previews SET status = ? WHERE preview_id = ?",
+                         (status, preview_id))
+
+    def confirm(self, preview_id: str, save: Callable[[Preview], T]) -> T | None:
+        """待確認的預覽交給 save 建立學習單並標為已確認；不存在、已確認或已取消時為 None。"""
         with self._lock:
-            self._purge()
-            return self._items.pop(preview_id, None) is not None
+            preview = self._pending(preview_id)
+            if preview is None:
+                return None
+            result = save(preview)
+            self._mark(preview_id, "confirmed")
+            return result
+
+    def cancel(self, preview_id: str) -> bool:
+        """待確認的預覽標為已取消；不存在、已確認或已取消時為 False。"""
+        with self._lock:
+            if self._pending(preview_id) is None:
+                return False
+            self._mark(preview_id, "cancelled")
+            return True
 
 
 @dataclass(frozen=True)
@@ -84,7 +119,7 @@ class WorksheetStore:
 
     def save(self, preview: Preview) -> StoredWorksheet:
         parsed = preview.parsed
-        confirmed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        confirmed_at = _now()
         with self._db.transaction() as conn:
             cursor = conn.execute(
                 "INSERT INTO worksheets (spreadsheet_id, spreadsheet_url, title, label_no,"
