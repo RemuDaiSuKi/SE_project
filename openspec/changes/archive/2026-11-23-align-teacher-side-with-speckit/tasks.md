@@ -30,6 +30,6 @@
 
 - [x] 5.1 更新 `diagrams/class.puml`、`component.puml`、`sequence-import.puml`、`sequence-writeback.puml`
 - [ ] 5.2 以 PlantUML 把上述 4 個 .puml 轉成 PNG，確認 PNG 已更新（見 README「設計圖」）
-- [ ] 5.3 在已安裝相依套件的環境執行 `python -m pytest`，確認全部通過
-- [ ] 5.4 以真實的 Google 試算表手動確認：匯入範例 A、B、寫回、未授權時無法啟動
+- [x] 5.3 在已安裝相依套件的環境執行 `python -m pytest`，確認全部通過
+- [x] 5.4 以真實的 Google 試算表手動確認：匯入範例 A、B、寫回、未授權時無法啟動
 - [x] 5.5 封存本 change（`/openspec-archive-change`），把 delta spec 同步進主 spec
