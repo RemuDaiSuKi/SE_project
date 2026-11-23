@@ -385,7 +385,11 @@ $("download-csv").addEventListener("click", async () => {
   if (!activity) return;
   try {
     const response = await api.request("GET", `/api/activities/${activity.id}/results.csv`, { raw: true });
+    const count = Number(response.headers.get("X-Record-Count") ?? "0");
     await api.saveResponse(response, `activity-${activity.id}-results.csv`);
+    // 沒有紀錄時仍下載只含標題列的 CSV，並在畫面提示（result-csv-export 規格）
+    if (count === 0) activityMessage("ok", "此活動沒有任何送出紀錄");
+    else activityMessage("ok", `已匯出 ${count} 筆紀錄。`);
   } catch (error) {
     activityMessage("error", error.message);
   }

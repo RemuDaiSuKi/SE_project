@@ -543,3 +543,15 @@ def test_activity_flow_never_logs_secrets(app, password, caplog, capsys):
                     *[h["Authorization"].split()[1] for h in heads]]
     for secret in secrets_used:
         assert secret not in everything
+
+
+def test_csv_without_submissions_has_header_only(app):
+    # 老師頁依 X-Record-Count 為 0 顯示「此活動沒有任何送出紀錄」（result-csv-export 規格）
+    client, teacher, ws_a, _ = app
+    activity = create(client, teacher, ws_a)
+    start(client, teacher, activity)
+    end(client, teacher, activity)
+    response = client.get(f"/api/activities/{activity['id']}/results.csv", headers=teacher)
+    assert response.status_code == 200
+    assert response.headers["X-Record-Count"] == "0"
+    assert response.content.decode("utf-8-sig").splitlines() == ["題號,組別,答案,搶答順位,結果"]
