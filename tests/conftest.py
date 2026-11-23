@@ -97,8 +97,10 @@ def make_client(settings: Settings, clock: FakeClock, results: FakeResultSource,
     clients: list[TestClient] = []
 
     def factory(*, settings_override: Settings | None = None, raise_server_exceptions: bool = True,
-                gateway_override: object | None = None) -> TestClient:
-        app = create_app(settings_override or settings, clock=clock, result_source=results,
+                gateway_override: object | None = None, activity_results: bool = False) -> TestClient:
+        # activity_results=True：使用真正的 SQLite 結果來源（搶答活動的端到端測試）
+        app = create_app(settings_override or settings, clock=clock,
+                         result_source=None if activity_results else results,  # type: ignore[arg-type]
                          gateway=gateway_override or gateway)  # type: ignore[arg-type]
         client = TestClient(app, base_url=BASE_URL, raise_server_exceptions=raise_server_exceptions)
         clients.append(client)

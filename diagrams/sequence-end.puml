@@ -1,0 +1,38 @@
+@startuml sequence-end
+title 時序圖：結束保存與重啟
+skinparam defaultFontName "Microsoft JhengHei"
+autonumber
+
+actor "老師" as Teacher
+participant "POST /api/activities/{id}/end" as Api
+participant "ActivityEngine" as Engine
+participant "SqliteActivityRepository" as Repo
+database "SQLite" as DB
+participant "Hub" as Hub
+participant "各組視窗" as Students
+
+Teacher -> Api : 結束活動
+Api -> Engine : end()
+activate Engine
+Engine -> Repo : persist_results(全部送出)
+Repo -> DB : 一筆交易：送出、答案、階段 = 已結束
+alt 寫入失敗
+  Engine --> Api : PersistFailed
+  Api --> Teacher : 500「結果保存失敗，活動仍在進行中，請再試一次」
+  note right : 維持搶答中，不推播
+else 寫入成功
+  Engine -> Engine : 階段 = 已結束，清除所有冷卻
+  Engine --> Api : phaseChanged、snapshot
+  deactivate Engine
+  Api -> Hub : dispatch
+  Hub -> Students : 已結束＋含完整結果的快照
+end
+
+== 伺服器重啟 ==
+participant "create_app" as App
+App -> Repo : mark_unfinished_interrupted()
+Repo -> DB : 準備中、搶答中 → 已中斷
+note over Students : 舊 Token 全部失效；學生頁以公開的階段查詢\n顯示「活動已中斷，請老師重新建立」
+Teacher -> Api : 檢視已結束的活動、判定無效、寫回、匯出 CSV
+Api -> Repo : 從資料庫載入已結束的活動
+@enduml

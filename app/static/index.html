@@ -5,18 +5,48 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>課堂搶答系統</title>
   <link rel="stylesheet" href="/static/css/app.css">
+  <script type="module" src="/static/js/student.js"></script>
 </head>
 <body>
-  <header class="topbar"><h1>課堂搶答系統</h1></header>
+  <header class="topbar">
+    <h1>課堂搶答系統</h1>
+    <span id="team-name" class="chip hidden"></span>
+  </header>
   <main>
-    <section class="card narrow">
-      <h2>選擇身分</h2>
+    <section id="join-view" class="card narrow">
+      <h2>加入組別</h2>
       <p class="muted">每個瀏覽器視窗各自保有自己的身分，可以在不同視窗分別開啟老師與各組畫面。</p>
-      <div class="row">
-        <a class="button primary" href="/teacher">我是老師</a>
-      </div>
-      <p class="muted">學生加入搶答的功能將在下一階段提供。</p>
+      <form id="join-form">
+        <label for="code">組別代碼（老師發給各組的 6 碼）</label>
+        <input id="code" type="text" autocomplete="off" spellcheck="false" maxlength="32" required>
+        <div class="row">
+          <button class="primary" type="submit">加入</button>
+          <a class="button" href="/teacher">我是老師</a>
+        </div>
+      </form>
     </section>
+
+    <div id="message" class="message hidden" role="alert"></div>
+
+    <div id="group-view" class="hidden">
+      <section class="card">
+        <h2>目前階段：<span id="phase"></span></h2>
+        <div id="cooldown" class="message error hidden" role="status"></div>
+        <div id="units" class="units"></div>
+      </section>
+
+      <section id="results" class="card hidden">
+        <h2>搶答結果</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>搶答單位</th><th>成功組別</th><th>成功答案</th></tr></thead>
+            <tbody id="result-rows"></tbody>
+          </table>
+        </div>
+        <h2>各組成功數</h2>
+        <ul id="team-wins"></ul>
+      </section>
+    </div>
   </main>
 </body>
 </html>

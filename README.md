@@ -4,7 +4,8 @@
 
 目前完成的部分：
 - 老師登入、以網址匯入 Google 試算表學習單、Google OAuth 授權（OpenSpec change `adopt-google-sheets-source`）。
-- 答案寫回與 CSV 匯出的 API（操作畫面在搶答活動 change `add-live-buzzer-activity` 加入）。
+- 線上分組搶答：組別代碼、即時同步、冷卻、判定無效、結束保存（change `add-live-buzzer-activity`，行為與 SpecKit 組的 002 一致）。
+- 答案寫回與 CSV 匯出。
 
 設計圖在 [`diagrams/`](diagrams/)（PlantUML 原始檔與 PNG），規格在 [`openspec/specs/`](openspec/specs/)。
 
@@ -41,7 +42,13 @@ Copy-Item .env.example .env
 | `BUZZER_MAX_QUESTIONS` | 500 | 題數上限 |
 | `BUZZER_LABEL_NO` / `BUZZER_LABEL_QUESTION` / `BUZZER_LABEL_ANSWER` | 題號 / 題目 / 作答 | 表頭標籤 |
 | `BUZZER_LOGIN_MAX_FAILURES` / `BUZZER_LOGIN_LOCK_SECONDS` | 5 / 300 | 老師密碼連續輸錯幾次後鎖定幾秒（所有視窗共用一個計數） |
-| `BUZZER_LOCKOUT_MAX_FAILURES` / `BUZZER_LOCKOUT_SECONDS` | 5 / 60 | 同一視窗連續失敗幾次後鎖定幾秒（保留給組別代碼輸入） |
+| `BUZZER_LOCKOUT_MAX_FAILURES` / `BUZZER_LOCKOUT_SECONDS` | 5 / 60 | 輸入組別代碼：同一視窗連續輸錯幾次後鎖定幾秒 |
+| `BUZZER_JOIN_GLOBAL_MAX_FAILURES` | 60 | 輸入組別代碼：全體最近 60 秒內輸錯達這個次數時，所有視窗暫停加入 |
+| `BUZZER_MAX_TEAMS` / `BUZZER_TEAM_NAME_MAX` | 20 / 20 | 組數上限與組名長度上限（字） |
+| `BUZZER_MAX_ANSWER_LENGTH` | 200 | 答案長度上限（字） |
+| `BUZZER_FAIRNESS_ENABLED` | true | 是否啟用冷卻 |
+| `BUZZER_COOLDOWN_LEAD` / `BUZZER_COOLDOWN_SECONDS` | 2 / 10 | 領先其他組別 K 題（1–100）就冷卻 N 秒（1–600）；建立活動時可覆寫 |
+| `BUZZER_WS_AUTH_TIMEOUT_SECONDS` | 5 | WebSocket 連線後必須在幾秒內送出驗證訊息 |
 | `BUZZER_TOKEN_TTL_HOURS` | 8 | 老師登入有效時數 |
 | `BUZZER_GOOGLE_CLIENT_SECRETS` | `<資料目錄>/google-client-secret.json` | Google OAuth 用戶端設定檔 |
 | `BUZZER_GOOGLE_TOKEN_FILE` | `<資料目錄>/google-token.json` | Google 授權檔（登入指令產生） |
@@ -85,6 +92,19 @@ Copy-Item .env.example .env
 5. 確認無誤按「確認匯入」；按「取消」則不建立任何資料。未確認的預覽沒有期限，伺服器重啟後仍可確認。
 
 解析規則與錯誤訊息見 [`openspec/specs/worksheet-import/spec.md`](openspec/specs/worksheet-import/spec.md)。
+
+## 搶答活動
+
+1. **建立活動：** 老師頁「建立搶答活動」選擇已確認的學習單、輸入組名（一行一組，1–20 組），可覆寫冷卻設定。同一時間只能有一場準備中或搶答中的活動。
+2. **發代碼：** 每組有一個 6 碼的組別代碼，只顯示在老師頁。請私下發給各組；代碼外流時按「重新產生代碼」，舊代碼與用舊代碼加入的視窗立即失效，該組原本的紀錄不受影響。
+3. **學生加入：** 學生開啟 <http://127.0.0.1:8000/>，輸入代碼加入組別（不分大小寫、可含空白）。同組可以多個視窗同時加入。同一視窗連續輸錯 5 次會被鎖定 60 秒。
+4. **開始與搶答：** 老師按「開始搶答」。題組要一次送出所有子題的答案；每組每個單位只能送出一次，順位依伺服器收到的順序。領先其他組別 K 題的組別會冷卻 N 秒。
+5. **判定無效：** 老師在「搶答單位」表格對某個單位按「判定無效」，由下一順位遞補；沒有人可遞補時，搶答中會重新開放，已結束則為無人搶答。
+6. **結束：** 老師按「結束活動」後，結果寫入資料庫，學生畫面顯示每個單位的成功組與成功答案。之後可以「寫回答案」或「下載 CSV」。
+
+階段只能依序前進：準備中 → 搶答中 → 已結束，沒有取消。伺服器重啟時，準備中或搶答中的活動會變成「已中斷」，學生需要老師重新建立活動；已結束的活動在重啟後仍可檢視、寫回與匯出。
+
+規則見 change `add-live-buzzer-activity` 的 delta spec（封存後在 `openspec/specs/`）： `activity-lifecycle`、`group-access`、`buzzer-submission`、`fairness-cooldown`、`success-invalidation`、`result-visibility`、`realtime-sync`、`result-persistence`。
 
 ## 寫回答案
 

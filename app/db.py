@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # 第 1 版以 .xlsx 原始檔為來源，沒有試算表 ID，無法轉換；升級時捨棄（design.md D8）
 _DROP_V1 = """
@@ -68,6 +68,55 @@ CREATE TABLE IF NOT EXISTS worksheet_previews (
 """
 
 
+# 第 4 版：搶答活動。只新增資料表，不動既有的學習單與預覽。
+# 活動與組別在建立時寫入；送出只在活動結束時以一筆交易寫入（design.md D7）。
+_SCHEMA_V4 = """
+CREATE TABLE IF NOT EXISTS activities (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    worksheet_id     INTEGER NOT NULL REFERENCES worksheets(id),
+    phase            TEXT    NOT NULL
+                     CHECK (phase IN ('preparing', 'running', 'ended', 'interrupted')),
+    fairness_enabled INTEGER NOT NULL,
+    cooldown_seconds INTEGER NOT NULL,
+    cooldown_lead    INTEGER NOT NULL,
+    created_at       TEXT    NOT NULL,
+    started_at       TEXT,
+    ended_at         TEXT
+);
+CREATE TABLE IF NOT EXISTS activity_teams (
+    activity_id  INTEGER NOT NULL REFERENCES activities(id),
+    team_id      INTEGER NOT NULL,
+    name         TEXT    NOT NULL,
+    code_hash    TEXT    NOT NULL,
+    code_version INTEGER NOT NULL,
+    PRIMARY KEY (activity_id, team_id),
+    UNIQUE (activity_id, name)
+);
+CREATE TABLE IF NOT EXISTS activity_submissions (
+    activity_id    INTEGER NOT NULL REFERENCES activities(id),
+    id             INTEGER NOT NULL,
+    unit_key       TEXT    NOT NULL,
+    team_id        INTEGER NOT NULL,
+    rank           INTEGER NOT NULL,
+    invalidated    INTEGER NOT NULL,
+    received_at    TEXT    NOT NULL,
+    invalidated_at TEXT,
+    PRIMARY KEY (activity_id, id),
+    UNIQUE (activity_id, unit_key, team_id),
+    UNIQUE (activity_id, unit_key, rank),
+    FOREIGN KEY (activity_id, team_id) REFERENCES activity_teams(activity_id, team_id)
+);
+CREATE TABLE IF NOT EXISTS activity_answers (
+    activity_id   INTEGER NOT NULL,
+    submission_id INTEGER NOT NULL,
+    question_no   INTEGER NOT NULL,
+    answer        TEXT    NOT NULL,
+    PRIMARY KEY (activity_id, submission_id, question_no),
+    FOREIGN KEY (activity_id, submission_id) REFERENCES activity_submissions(activity_id, id)
+);
+"""
+
+
 class Database:
     """單一連線，以鎖序列化存取（伺服器為單一程序）。"""
 
@@ -90,6 +139,9 @@ class Database:
                 self._conn.executescript(_SCHEMA_V2)
             if version < 3:
                 self._conn.executescript(_SCHEMA_V3)
+            if version < 4:
+                self._conn.executescript(_SCHEMA_V4)
+            if version < SCHEMA_VERSION:
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     @contextmanager

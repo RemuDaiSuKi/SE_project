@@ -1,16 +1,26 @@
 @startuml component
-title 課堂搶答系統 元件圖（學習單匯入、Google 授權、寫回與匯出）
+title 課堂搶答系統 元件圖（學習單匯入、Google 授權、搶答活動、寫回與匯出）
 skinparam componentStyle rectangle
 skinparam defaultFontName "Microsoft JhengHei"
 
 actor "老師" as Teacher
 
 node "老師的電腦（預設監聽 127.0.0.1，可用 BUZZER_HOST 設定）" {
-  component "瀏覽器視窗\nteacher.html / api.js" as Browser
+  component "老師視窗\nteacher.html / teacher.js / api.js" as Browser
+  component "各組視窗\nindex.html / student.js" as StudentBrowser
   component "登入指令\npython -m app google-login" as LoginCli
 
   node "FastAPI 伺服器（單一程序）" {
     component "API 路由\nteacher / worksheets / outputs" as Api
+    component "搶答 API\nactivities / student" as ActivityApi
+    component "推播中心\nHub（WebSocket /ws）" as Hub
+    package "搶答活動 app/activity" {
+      component "ActivityRegistry" as Registry
+      component "ActivityEngine\n（每場一把 asyncio.Lock）" as Engine
+      component "JoinLimiter" as JoinLimiter
+      component "SqliteActivityRepository" as ActivityRepo
+      component "SqliteResultSource" as ResultSource
+    }
     component "身分與權限\nWindowRegistry / LoginLimiter / SessionStore" as Security
     component "學習單解析器\nparse_grid" as Parser
     component "預覽與學習單儲存\nPreviewStore / WorksheetStore" as Store
@@ -31,7 +41,7 @@ cloud "Google" {
   component "Google OAuth 2.0" as OAuth
 }
 
-component "搶答活動\n（下一個 change）" as Activity #DDDDDD
+actor "各組學生" as Student
 
 Teacher --> Browser
 Teacher --> LoginCli
@@ -47,7 +57,22 @@ Writeback --> Parser : 重新解析驗證結構
 Writeback --> Gateway : 讀取與寫入
 Writeback --> ResultsPort
 Csv --> ResultsPort
-Activity ..> ResultsPort : 提供 ActivityResult
+Student --> StudentBrowser
+StudentBrowser --> ActivityApi : HTTP（X-Window-Id、Bearer）
+StudentBrowser <--> Hub : WebSocket
+Browser --> ActivityApi : HTTP（Bearer）
+Browser <--> Hub : WebSocket
+ActivityApi --> Security
+ActivityApi --> JoinLimiter
+ActivityApi --> Registry
+ActivityApi --> Hub : 鎖釋放後推播事件
+Registry --> Engine
+Registry --> Store : 讀取已確認的學習單
+Engine --> ActivityRepo : 結束時一次寫入
+Registry --> ActivityRepo
+ActivityRepo --> DB
+ResultSource --> ActivityRepo
+ResultSource ..> ResultsPort : 實作
 Gateway --> Auth : 取得有效憑證
 Gateway --> SheetsApi : HTTPS
 Auth --> Token : 讀取／更新

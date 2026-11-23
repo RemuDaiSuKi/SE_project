@@ -1,0 +1,37 @@
+@startuml sequence-join
+title 時序圖：以組別代碼加入組別
+skinparam defaultFontName "Microsoft JhengHei"
+autonumber
+
+actor "學生" as Student
+participant "各組視窗\nstudent.js" as Browser
+participant "POST /api/join" as Api
+participant "JoinLimiter" as Limiter
+participant "ActivityRegistry" as Registry
+participant "ActivityEngine" as Engine
+participant "SessionStore" as Sessions
+
+Student -> Browser : 輸入代碼
+Browser -> Api : {code}，標頭 X-Window-Id
+Api -> Limiter : check_allowed(視窗)
+alt 視窗鎖定或全體最近 60 秒輸錯達上限
+  Api --> Browser : 429「代碼輸入錯誤次數過多，請於 N 秒後再試」
+end
+Api -> Api : 去掉所有空白、轉大寫
+alt 不是 6 碼或含字元集以外的字元
+  Api --> Browser : 400「組別代碼格式不正確（6 碼英數字）」（不算失敗）
+end
+Api -> Registry : find_team_by_code(code)
+Registry -> Engine : 只在目前進行中的活動比對 SHA-256
+alt 找不到
+  Api -> Limiter : record_failure(視窗)
+  Api --> Browser : 400「組別代碼錯誤」
+else 找到
+  Api -> Limiter : record_success(視窗)
+  Api -> Sessions : issue("group", 視窗, group_id, activity_id, code_version)
+  Api --> Browser : {token, activityId, team, phase}
+  Browser -> Browser : Token 存在本視窗的 sessionStorage
+  Browser -> Api : WebSocket /ws，第一則訊息 {"type":"auth","token"}
+  note right : 驗證成功後收到本組快照
+end
+@enduml

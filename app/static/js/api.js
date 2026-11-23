@@ -71,8 +71,8 @@ async function parseError(response) {
   return new ApiError(response.status, code, message, details, extra);
 }
 
-export async function request(method, path, { json, form, raw = false } = {}) {
-  const headers = {};
+export async function request(method, path, { json, form, raw = false, headers: extra = {} } = {}) {
+  const headers = { ...extra };
   const current = token();
   if (current) headers.Authorization = `Bearer ${current}`;
   let body;

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import Request
 
+from .activity.join_limiter import JoinLimiter
+from .activity.registry import ActivityRegistry
 from .config import Settings
 from .db import Database
-from .errors import forbidden, session_expired
+from .errors import AppError, forbidden, session_expired
 from .google.gateway import SheetsGateway
 from .results.contract import FinalResultSource
 from .security import (
@@ -21,6 +24,9 @@ from .security import (
     bearer_token,
 )
 from .worksheet.store import PreviewStore, WorksheetStore
+
+ROLE_GROUP = "group"
+GROUP_SESSION_INVALID_MESSAGE = "組別身分無效或已失效，請重新輸入組別代碼"
 
 
 @dataclass
@@ -35,6 +41,9 @@ class AppState:
     worksheets: WorksheetStore
     result_source: FinalResultSource
     gateway: SheetsGateway
+    activities: ActivityRegistry
+    join_limiter: JoinLimiter
+    hub: Any  # app.realtime.Hub（避免循環 import）
 
 
 def get_state(request: Request) -> AppState:
@@ -56,4 +65,17 @@ def require_teacher(request: Request) -> Session:
     session = current_session(request)
     if session is None or session.role != ROLE_TEACHER:
         raise forbidden()
+    return session
+
+
+def group_session_invalid() -> AppError:
+    return AppError(401, "GROUP_SESSION_INVALID", GROUP_SESSION_INVALID_MESSAGE)
+
+
+def require_group(request: Request) -> Session:
+    """學生功能：Token 無效、過期或不是組別身分時回應 401。"""
+    token = bearer_token(request.headers.get("authorization"))
+    session = get_state(request).sessions.resolve(token) if token else None
+    if session is None or session.role != ROLE_GROUP:
+        raise group_session_invalid()
     return session

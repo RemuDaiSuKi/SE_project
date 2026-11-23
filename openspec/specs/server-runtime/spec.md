@@ -18,7 +18,19 @@
 - **THEN** 伺服器同樣拒絕啟動
 
 ### Requirement: 參數可設定
-系統的可調參數 SHALL 透過環境變數（或 `.env` 檔）設定且各有預設值，MUST NOT 寫死在程式中。至少包含：port、資料目錄、題數上限（預設 500）、三個表頭標籤（預設「題號」「題目」「作答」）、視窗失敗鎖定次數（預設 5）與鎖定秒數（預設 60）、Token 有效時數（預設 12）、Google OAuth 用戶端設定檔路徑（預設為資料目錄下的 `google-client-secret.json`）、Google 授權檔路徑（預設為資料目錄下的 `google-token.json`）與 Google API 逾時秒數（預設 20）。設定值不合法時伺服器 SHALL 拒絕啟動並以繁中說明哪個設定有誤。
+系統的可調參數 SHALL 透過環境變數（或 `.env` 檔）設定且各有預設值，MUST NOT 寫死在程式中。至少包含：
+- 監聽位址（預設 127.0.0.1）與 port
+- 資料目錄
+- 題數上限（預設 500）
+- 三個表頭標籤（預設「題號」「題目」「作答」）
+- 老師登入失敗次數（預設 5）與鎖定秒數（預設 300）
+- 視窗失敗鎖定次數（預設 5）與鎖定秒數（預設 60）
+- Token 有效時數（預設 8）
+- Google OAuth 用戶端設定檔路徑（預設為資料目錄下的 `google-client-secret.json`）
+- Google 授權檔路徑（預設為資料目錄下的 `google-token.json`）
+- Google API 逾時秒數（預設 10）
+
+設定值不合法時伺服器 SHALL 拒絕啟動，並以繁中說明哪個設定有誤。
 
 #### Scenario: 覆寫題數上限
 - **WHEN** 以題數上限 10 啟動伺服器，並匯入 11 題的學習單
@@ -32,23 +44,20 @@
 - **WHEN** 以 `BUZZER_GOOGLE_CLIENT_SECRETS` 指定另一個 OAuth 用戶端設定檔路徑後執行登入指令
 - **THEN** 登入指令使用該路徑的設定檔
 
-### Requirement: 只監聽本機
-伺服器 SHALL 只監聽 127.0.0.1，此位址 MUST NOT 可被設定為其他值；port 可設定。
-
-#### Scenario: 監聽位址
-- **WHEN** 伺服器啟動完成
-- **THEN** 只有 127.0.0.1 上的設定 port 接受連線，其他網路介面無法連線
-
-### Requirement: Host 標頭檢查
-系統 SHALL 只接受 Host 標頭為 `127.0.0.1:<port>` 或 `localhost:<port>` 的請求，其他 Host SHALL 被拒絕並回應「不允許的連線來源」。
-
-#### Scenario: 非本機 Host
-- **WHEN** 一個請求的 Host 標頭為 `evil.example:8000`
-- **THEN** 系統拒絕該請求，不執行任何操作
-
 ### Requirement: 單一程序執行
 伺服器 SHALL 以單一程序執行，所有請求共用同一份記憶體狀態；啟動方式 MUST NOT 允許多個 worker。
 
 #### Scenario: 啟動方式
 - **WHEN** 依文件的啟動指令啟動伺服器
 - **THEN** 只有一個伺服器程序處理所有請求
+
+### Requirement: 監聽位址可設定
+伺服器 SHALL 監聽 `BUZZER_HOST` 指定的位址（預設 127.0.0.1）與設定的 port；系統不檢查請求的 Host 標頭。
+
+#### Scenario: 預設位址
+- **WHEN** 未設定 `BUZZER_HOST` 時啟動伺服器
+- **THEN** 伺服器只在 127.0.0.1 上的設定 port 接受連線
+
+#### Scenario: 自訂位址
+- **WHEN** 以 `BUZZER_HOST=0.0.0.0` 啟動伺服器
+- **THEN** 伺服器監聽 0.0.0.0
