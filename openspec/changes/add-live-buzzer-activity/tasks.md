@@ -55,7 +55,7 @@
 
 - [x] 8.1 在已安裝相依套件的環境執行 `python -m pytest`，確認全部通過
 - [ ] 8.2 以 PlantUML 把 6.1 的 7 個 .puml 轉成 PNG，確認 PNG 已更新（見 README「設計圖」）
-- [ ] 8.3 執行 `openspec validate add-live-buzzer-activity --strict`
+- [x] 8.3 執行 `openspec validate add-live-buzzer-activity --strict`
 - [ ] 8.4 手動操作：一個老師視窗加三個學生視窗走完整個流程。確認以下項目後，寫回範例 B 並下載 CSV：
   - 同步在 2 秒內
   - 冷卻倒數
