@@ -193,9 +193,17 @@ def test_env_example_and_gitignore():
         assert pattern in ignored
 
 
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    """執行 git；沒有安裝 git 時跳過測試。"""
+    try:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True,
+                              encoding="utf-8")
+    except FileNotFoundError:
+        pytest.skip("git 不可用")
+
+
 def test_no_secret_files_tracked_or_unignored():
-    proc = subprocess.run(["git", "ls-files", "--others", "--cached", "--exclude-standard"],
-                          cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+    proc = _git("ls-files", "--others", "--cached", "--exclude-standard")
     if proc.returncode != 0:
         pytest.skip("git 不可用")
     files = proc.stdout.splitlines()
@@ -206,8 +214,7 @@ def test_no_secret_files_tracked_or_unignored():
 
 
 def test_google_credential_filename_is_ignored():
-    proc = subprocess.run(["git", "check-ignore", "client_secret_123-abc.apps.googleusercontent.com.json"],
-                          cwd=ROOT, capture_output=True, text=True)
+    proc = _git("check-ignore", "client_secret_123-abc.apps.googleusercontent.com.json")
     if proc.returncode not in (0, 1):
         pytest.skip("git 不可用")
     assert proc.returncode == 0
