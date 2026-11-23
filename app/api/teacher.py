@@ -30,18 +30,18 @@ def login(body: LoginBody, state: AppState = Depends(get_state)) -> dict:
     window_id = body.windowId
     if not state.windows.exists(window_id):
         raise AppError(400, "WINDOW_UNKNOWN", "視窗識別已失效，請重新整理頁面")
-    remaining = state.windows.lock_remaining(window_id)
+    remaining = state.login_limiter.lock_remaining()
     if remaining:
-        raise AppError(429, "LOCKED", f"嘗試次數過多，請於 {remaining} 秒後再試",
+        raise AppError(429, "LOCKED", f"密碼錯誤次數過多，請於 {remaining} 秒後再試",
                        headers={"Retry-After": str(remaining)},
                        extra={"retryAfterSeconds": remaining})
     expected = state.settings.teacher_password
     assert expected is not None  # create_app 已檢查
     if not password_matches(body.password, expected.get_secret_value()):
-        state.windows.record_failure(window_id)
+        state.login_limiter.record_failure()
         logger.info("老師登入失敗")
         raise AppError(400, "INVALID_PASSWORD", "密碼錯誤")
-    state.windows.record_success(window_id)
+    state.login_limiter.record_success()
     token = state.sessions.issue(ROLE_TEACHER, window_id)
     logger.info("老師登入成功")
     return {"token": token, "role": ROLE_TEACHER,

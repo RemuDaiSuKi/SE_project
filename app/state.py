@@ -3,22 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
 from fastapi import Request
 
 from .config import Settings
 from .db import Database
 from .errors import forbidden, session_expired
-from .google.auth import AuthStatus
 from .google.gateway import SheetsGateway
 from .results.contract import FinalResultSource
-from .security import ROLE_TEACHER, Clock, Session, SessionStore, WindowRegistry, bearer_token
+from .security import (
+    ROLE_TEACHER,
+    Clock,
+    LoginLimiter,
+    Session,
+    SessionStore,
+    WindowRegistry,
+    bearer_token,
+)
 from .worksheet.store import PreviewStore, WorksheetStore
-
-
-class AuthStatusSource(Protocol):
-    def status(self) -> AuthStatus: ...
 
 
 @dataclass
@@ -27,12 +29,12 @@ class AppState:
     clock: Clock
     db: Database
     windows: WindowRegistry
+    login_limiter: LoginLimiter
     sessions: SessionStore
     previews: PreviewStore
     worksheets: WorksheetStore
     result_source: FinalResultSource
     gateway: SheetsGateway
-    google_auth: AuthStatusSource
 
 
 def get_state(request: Request) -> AppState:

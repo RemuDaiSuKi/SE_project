@@ -20,12 +20,12 @@ from .errors import SheetsError
 logger = logging.getLogger("buzzer")
 
 API_ROOT = "https://sheets.googleapis.com/v4/spreadsheets"
+# 讀取儲存格的顯示值（formattedValue），與 SpecKit 組一致
 FETCH_FIELDS = (
     "spreadsheetId,properties.title,"
     "sheets(properties(sheetId,title,index,sheetType),merges,"
-    "data(startRow,startColumn,rowData(values(userEnteredValue))))"
+    "data(startRow,startColumn,rowData(values(formattedValue))))"
 )
-_DISABLED_REASONS = {"SERVICE_DISABLED", "accessNotConfigured"}
 
 
 @dataclass(frozen=True)
@@ -45,38 +45,21 @@ class SheetsGateway(Protocol):
     def write_cells(self, spreadsheet_id: str, writes: Sequence[CellWrite]) -> None: ...
 
 
-def _error_reasons(response: Any) -> tuple[set[str], str]:
-    try:
-        error = response.json().get("error", {})
-    except Exception:
-        return set(), ""
-    reasons = {str(d.get("reason", "")) for d in error.get("details", []) or []}
-    reasons |= {str(e.get("reason", "")) for e in error.get("errors", []) or []}
-    return reasons, str(error.get("status", ""))
+def classify_response(response: Any, account: str | None = None) -> None:
+    """非 2xx 回應轉成 SheetsError（不保留 Google 的原始內容）。
 
-
-def classify_response(response: Any) -> None:
-    """非 2xx 回應轉成 SheetsError（不保留 Google 的原始內容）。"""
+    401 → 授權失效、403 → 沒有權限、404 → 找不到，其他一律為暫時無法使用（與 SpecKit 組一致）。
+    """
     status = int(response.status_code)
     if status < 400:
         return
-    reasons, error_status = _error_reasons(response)
-    if status == 401:
-        kind = "auth_expired"
-    elif status == 404:
-        kind = "not_found"
-    elif status == 403:
-        kind = "api_disabled" if reasons & _DISABLED_REASONS else "forbidden"
-    elif status == 400 and error_status == "FAILED_PRECONDITION":
-        kind = "not_spreadsheet"
-    else:
-        kind = "unavailable"
+    kind = {401: "auth_expired", 403: "forbidden", 404: "not_found"}.get(status, "unavailable")
     logger.info("Google API 請求失敗 status=%s kind=%s", status, kind)
-    raise SheetsError(kind, status)  # type: ignore[arg-type]
+    raise SheetsError(kind, status, account if kind == "forbidden" else None)  # type: ignore[arg-type]
 
 
 class GoogleSheetsGateway:
-    def __init__(self, auth: GoogleAuth, *, timeout_seconds: float = 20,
+    def __init__(self, auth: GoogleAuth, *, timeout_seconds: float = 10,
                  session_factory: Callable[[Any], Any] = AuthorizedSession) -> None:
         self._auth = auth
         self._timeout = timeout_seconds
@@ -89,8 +72,8 @@ class GoogleSheetsGateway:
         except RefreshError:
             raise SheetsError("auth_expired") from None
         except (requests.exceptions.RequestException, TransportError, OSError):
-            raise SheetsError("network") from None
-        classify_response(response)
+            raise SheetsError("unavailable") from None
+        classify_response(response, self._auth.account())
         try:
             return response.json()
         except ValueError:

@@ -20,10 +20,11 @@ logger = logging.getLogger("buzzer")
 router = APIRouter(prefix="/api/worksheets")
 
 INVALID_URL_MESSAGE = "請輸入有效的 Google 試算表網址"
+PREVIEW_CLOSED_MESSAGE = "這份預覽已確認或已取消，請重新讀取試算表"
 
 
 class PreviewBody(BaseModel):
-    url: str = Field(max_length=2000)
+    url: str = Field(max_length=4096)  # 超過 2048 字由 parse_spreadsheet_id 以「無效網址」拒絕
 
 
 def question_json(q: Question) -> dict:
@@ -73,13 +74,16 @@ async def create_preview(body: PreviewBody, _: Session = Depends(require_teacher
             "spreadsheetUrl": url, **parsed_json(parsed)}
 
 
+def _preview_closed() -> AppError:
+    return AppError(409, "PREVIEW_CLOSED", PREVIEW_CLOSED_MESSAGE)
+
+
 @router.post("/previews/{preview_id}/confirm", status_code=201)
 def confirm_preview(preview_id: str, _: Session = Depends(require_teacher),
                     state: AppState = Depends(get_state)) -> dict:
-    preview = state.previews.take(preview_id)
-    if preview is None:
-        raise AppError(409, "PREVIEW_EXPIRED", "預覽已失效，請重新讀取試算表")
-    stored = state.worksheets.save(preview)
+    stored = state.previews.confirm(preview_id, state.worksheets.save)
+    if stored is None:
+        raise _preview_closed()
     logger.info("學習單已確認 id=%s 題數=%s 題組數=%s", stored.id, stored.question_count,
                 stored.group_count)
     return worksheet_summary(stored)
@@ -88,7 +92,8 @@ def confirm_preview(preview_id: str, _: Session = Depends(require_teacher),
 @router.delete("/previews/{preview_id}")
 def cancel_preview(preview_id: str, _: Session = Depends(require_teacher),
                    state: AppState = Depends(get_state)) -> dict:
-    state.previews.discard(preview_id)
+    if not state.previews.cancel(preview_id):
+        raise _preview_closed()
     return {"ok": True}
 
 

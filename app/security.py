@@ -81,6 +81,38 @@ class WindowRegistry:
                 state.locked_until = 0.0
 
 
+class LoginLimiter:
+    """老師登入的連續失敗鎖定：所有視窗共用一個計數。
+
+    達到上限時鎖定一段時間並把計數歸零；鎖定期間連正確密碼也拒絕；登入成功時計數歸零。
+    """
+
+    def __init__(self, max_failures: int, lock_seconds: int, clock: Clock = time.monotonic) -> None:
+        self._max_failures = max_failures
+        self._lock_seconds = lock_seconds
+        self._clock = clock
+        self._failures = 0
+        self._locked_until = 0.0
+        self._lock = threading.Lock()
+
+    def lock_remaining(self) -> int:
+        """鎖定剩餘秒數（無條件進位）；未鎖定時為 0。"""
+        with self._lock:
+            remaining = self._locked_until - self._clock()
+            return max(1, math.ceil(remaining)) if remaining > 0 else 0
+
+    def record_failure(self) -> None:
+        with self._lock:
+            self._failures += 1
+            if self._failures >= self._max_failures:
+                self._failures = 0
+                self._locked_until = self._clock() + self._lock_seconds
+
+    def record_success(self) -> None:
+        with self._lock:
+            self._failures = 0
+
+
 @dataclass
 class Session:
     role: str

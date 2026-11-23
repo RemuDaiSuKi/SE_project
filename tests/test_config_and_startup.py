@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.__main__ import build_server_config
-from app.config import LISTEN_HOST, Settings, StartupError, invalid_setting_names
+from app.config import DEFAULT_HOST, Settings, StartupError, invalid_setting_names
 from app.main import create_app
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,11 +20,13 @@ def test_defaults():
     assert s.port == 8000
     assert s.max_questions == 500
     assert (s.label_no, s.label_question, s.label_answer) == ("題號", "題目", "作答")
-    assert s.lockout_max_failures == 5 and s.lockout_seconds == 60 and s.token_ttl_hours == 12
+    assert s.login_max_failures == 5 and s.login_lock_seconds == 300
+    assert s.lockout_max_failures == 5 and s.lockout_seconds == 60 and s.token_ttl_hours == 8
+    assert s.host == DEFAULT_HOST == "127.0.0.1"
     assert s.teacher_password is None and not s.has_teacher_password()
     assert s.google_client_secrets_path == Path("data") / "google-client-secret.json"
     assert s.google_token_path == Path("data") / "google-token.json"
-    assert s.google_timeout_seconds == 20
+    assert s.google_timeout_seconds == 10
     assert not hasattr(s, "max_upload_mb")
 
 
@@ -56,6 +58,8 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     ("max_questions", "0", "BUZZER_MAX_QUESTIONS"),
     ("label_no", "   ", "BUZZER_LABEL_NO"),
     ("google_timeout_seconds", "0", "BUZZER_GOOGLE_TIMEOUT_SECONDS"),
+    ("host", "  ", "BUZZER_HOST"),
+    ("login_lock_seconds", "0", "BUZZER_LOGIN_LOCK_SECONDS"),
 ])
 def test_invalid_values_report_setting_name(field, value, env):
     with pytest.raises(ValidationError) as info:
@@ -122,19 +126,44 @@ def test_google_login_command_without_client_file(tmp_path):
     assert "找不到 Google OAuth 用戶端設定檔（BUZZER_GOOGLE_CLIENT_SECRETS）" in proc.stderr.decode("utf-8")
 
 
-def test_server_starts_without_google_authorization(settings):
-    # 伺服器可在未完成 Google 授權時建立（只有讀寫試算表會失敗）
-    app = create_app(settings)
-    status = app.state.buzzer.google_auth.status()
-    assert (status.configured, status.authorized) == (False, False)
-    app.state.buzzer.db.close()
+def test_main_refuses_without_google_client_file(tmp_path):
+    # 與 SpecKit 組一致：缺少 OAuth 用戶端設定檔時伺服器拒絕啟動
+    proc = _run_main({"BUZZER_TEACHER_PASSWORD": "x"}, tmp_path)
+    stderr = proc.stderr.decode("utf-8")
+    assert proc.returncode == 1
+    assert "找不到 Google OAuth 用戶端設定檔（BUZZER_GOOGLE_CLIENT_SECRETS），伺服器無法啟動" in stderr
+    assert "python -m app google-login" in stderr
 
 
-def test_server_config_is_local_single_process(settings):
+def test_main_refuses_without_google_authorization(tmp_path):
+    client = tmp_path / "client_secret.json"
+    client.write_text('{"installed": {}}', encoding="utf-8")
+    proc = _run_main({"BUZZER_TEACHER_PASSWORD": "x", "BUZZER_GOOGLE_CLIENT_SECRETS": str(client)},
+                     tmp_path)
+    assert proc.returncode == 1
+    assert "尚未完成 Google 授權，伺服器無法啟動。請先執行 python -m app google-login" in \
+        proc.stderr.decode("utf-8")
+
+
+def test_password_checked_before_google(tmp_path):
+    proc = _run_main({}, tmp_path)
+    stderr = proc.stderr.decode("utf-8")
+    assert "BUZZER_TEACHER_PASSWORD" in stderr and "Google" not in stderr
+
+
+def test_server_config_single_process(settings):
     app = create_app(settings)
     config = build_server_config(app, settings)
-    assert config.host == LISTEN_HOST == "127.0.0.1"
+    assert config.host == "127.0.0.1"
     assert config.port == settings.port
     assert config.workers == 1
     assert config.access_log is False
+    app.state.buzzer.db.close()
+
+
+def test_listen_host_configurable(settings):
+    # 與 SpecKit 組一致：監聽位址可用 BUZZER_HOST 設定（預設 127.0.0.1）
+    changed = settings.model_copy(update={"host": "0.0.0.0"})
+    app = create_app(changed)
+    assert build_server_config(app, changed).host == "0.0.0.0"
     app.state.buzzer.db.close()

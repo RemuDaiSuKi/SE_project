@@ -4,7 +4,7 @@
 
 ## 0. 先讀這段
 
-- **已經完成的部分：** 老師登入、從 Google 試算表匯入學習單、答案寫回、CSV 匯出。相關規格是 `openspec/specs/` 下的 7 份主 spec，共 247 項測試。
+- **已經完成的部分：** 老師登入、從 Google 試算表匯入學習單、答案寫回、CSV 匯出。相關規格是 `openspec/specs/` 下的 7 份主 spec。
 - **你要做的部分：** 搶答活動本身，包括：
   - 建立活動與組別代碼、學生加入
   - 階段切換與即時同步
@@ -24,7 +24,7 @@
    - Claude Code：repo 內的 `.claude/skills/openspec-*` 就是 OpenSpec 的工作流程，`/openspec-propose`、`/openspec-apply-change`、`/openspec-archive-change` 可以直接使用
    - Java 與 PlantUML jar：轉設計圖時才需要，見 README「設計圖」
 2. **建立環境：** clone 之後，依 README 的「安裝」「設定」建立 `.venv` 與 `.env`。老師密碼由你自己訂，不要傳給別人，也不要 commit。
-3. **確認測試：** 執行 `.venv\Scripts\python -m pytest`，應該是 247 passed。
+3. **確認測試：** 執行 `.venv\Scripts\python -m pytest`，應該全部通過。
 4. **開分支：** 從最新的 `main` 建立分支：`git switch -c add-live-buzzer-activity`
 5. **建立 change：** 在 Claude Code 執行 `/openspec-propose add-live-buzzer-activity`，並把本文件當作輸入。規則已經確認過，不需要再 explore 一輪。
 6. **提交與合併：**
@@ -170,8 +170,8 @@
   - 組別代碼放在 POST body。
   - uvicorn 的 access log 已經關閉。
 - **WebSocket 來源檢查：**
-  - Host 檢查已經有了：Host 不符時，`LocalHostOnlyMiddleware` 會以代碼 1008 關閉 WebSocket。
-  - 本 change 要再檢查 `Origin`，只允許 `http://127.0.0.1:<port>` 與 `http://localhost:<port>`。
+  - Host 標頭檢查已在 `align-teacher-side-with-speckit` 移除（與 SpecKit 組一致），監聽位址改由 `BUZZER_HOST` 設定。
+  - 是否另外檢查 WebSocket 的 `Origin`，請先和 SpecKit 組確認（對方目前沒有檢查）。
 - **機敏資料：**
   - 代碼與 Token 不能進 log。資料庫只存雜湊。
   - 測試用的代碼在測試執行時產生，不寫在任何檔案裡。
@@ -330,8 +330,8 @@
 - **設定：** `app/config.py` 的 `Settings` 以 `BUZZER_` 為前綴。
   - 要新增：答案長度上限、N、K、冷卻開關、組數上限、組名長度。
   - 新設定要同步更新 `.env.example` 與 README 的設定表。`tests/test_integration.py` 會檢查 `.env.example` 的內容。
-- **資料庫：** `app/db.py` 目前是 `SCHEMA_VERSION = 2`。本 change 升到第 3 版。
-  - **注意：** 現有的 `_migrate` 從第 1 版升級時會刪掉舊表。第 2 版升到第 3 版只能新增資料表，**不可刪除既有的學習單資料**。
+- **資料庫：** `app/db.py` 目前是 `SCHEMA_VERSION = 3`（第 3 版新增 `worksheet_previews`）。本 change 升到第 4 版。
+  - **注意：** 現有的 `_migrate` 從第 1 版升級時會刪掉舊表。第 3 版升到第 4 版只能新增資料表，**不可刪除既有的學習單資料**。
   - `tests/test_db.py` 要一起更新。
 
 ### 啟動與頁面
@@ -385,6 +385,8 @@
 
 ## 7. 待與 SpecKit 組對齊
 
+2026-11-23 已對照 SpecKit 組的實作，老師端的差異由 change `align-teacher-side-with-speckit` 修正。下列搶答項目中，SpecKit 組的做法是：G3、G7、階段不可跳躍與本文件相同；G5 不同（對方的代碼只在準備中與搶答中可用，結束後不能再加入）；G12 不同（對方的題號標示沒有工作表名）。
+
 這些是兩組可能做得不一樣的地方，確認後請在這裡打勾，或記在 change 的 design.md。
 
 **本 change 相關**
@@ -395,14 +397,14 @@
 - [ ] 階段不可跳躍（準備中不能直接到已結束）
 
 **前兩個 change 留下的**
-- [ ] G11：CSV 答案以 `=`、`+`、`-`、`@` 開頭時照原樣輸出（有 CSV 注入的風險）
-- [ ] 隱藏的工作表照常解析
-- [ ] 老師頁面顯示 Google 授權帳號的 email
-- [ ] 網址欄位也接受純試算表 ID
-- [ ] 工作表以 Google 的工作表 ID 識別，老師改分頁名稱後仍能寫回
-- [ ] 還沒完成 Google 授權時，伺服器也能啟動
-- [ ] 兩條專屬錯誤訊息：雲端硬碟裡的 Excel 檔、Sheets API 未啟用
-- [ ] 寫回後才判定無效，再寫回時舊答案會留著（已有內容不覆蓋），老師要先到試算表手動清掉那格
+- [x] G11：CSV 答案以 `=`、`+`、`-`、`@` 開頭時照原樣輸出（有 CSV 注入的風險；兩邊相同）
+- [x] 隱藏的工作表照常解析（兩邊相同）
+- [x] 老師頁面顯示 Google 授權帳號的 email（已改為不顯示，帳號改列在沒有權限的錯誤訊息中，與 SpecKit 組一致）
+- [x] 網址欄位也接受純試算表 ID（兩邊相同；網址規則已改成與 SpecKit 組一致）
+- [x] 工作表以 Google 的工作表 ID 識別，老師改分頁名稱後仍能寫回（已改為改名後拒絕寫回，與 SpecKit 組一致）
+- [x] 還沒完成 Google 授權時，伺服器也能啟動（已改為拒絕啟動，與 SpecKit 組一致）
+- [x] 兩條專屬錯誤訊息：雲端硬碟裡的 Excel 檔、Sheets API 未啟用（已移除，與 SpecKit 組一致）
+- [x] 寫回後才判定無效，再寫回時舊答案會留著（已有內容不覆蓋），老師要先到試算表手動清掉那格（兩邊相同）
 
 ## 8. 協作注意事項
 

@@ -27,9 +27,10 @@ Gateway -> Google : GET spreadsheets/{id}（重新讀取最新內容）
 Google --> Gateway : 儲存格值與合併範圍
 Gateway --> Service : SpreadsheetGrid
 Service -> Service : 把預期的填空格內容暫時視為空白
-Service -> Parser : parse_grid(grid, 匯入時的標籤)
+Service -> Parser : parse_grid(grid, 目前設定的標籤, 題數上限)
 Parser --> Service : ParsedWorksheet
-Service -> Service : 逐題比對工作表 ID、位置、列號、原始題號、子題標籤、題組
+Service -> Service : 比對題數，再逐題比對工作表 ID、工作表名稱、填空格、題組
+（遇到第一個差異就停止）
 alt 結構不一致
   Service --> Api : StructureMismatch（不一致項目）
   Api --> Browser : 409「學習單結構與匯入時不一致，無法寫回」
@@ -38,7 +39,7 @@ Service -> Service : 每題取「順位最小且未被判定無效」的答案\n
 opt 有要寫入的填空格
   Service -> Gateway : write_cells(寫入清單)
   Gateway -> Google : POST values:batchUpdate（valueInputOption=RAW，單一批次）
-  alt 403 / 網路錯誤
+  alt 403 / 其他錯誤或無法連線
     Google --> Gateway : 錯誤
     Gateway --> Api : SheetsError
     Api --> Browser : 繁中錯誤訊息（排除後可直接重試）

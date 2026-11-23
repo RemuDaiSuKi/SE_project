@@ -155,11 +155,28 @@ def prefilled() -> Workbook:
 
 
 def two_blanks() -> Workbook:
-    """第 9 列的 G9、H9 未合併且都空白。"""
+    """第 9 列的 G9、H9 未合併且都空白（相鄰，算一個填空格）。"""
     workbook, ws = _fresh()
     write_header(ws)
     add_single(ws, 5, 1)
     add_single(ws, 9, 2, merge_answer=False)
+    return workbook
+
+
+def _plain_question(ws: Worksheet, row: int, number: object) -> None:
+    ws[f"B{row}"] = number
+    ws[f"C{row}"] = f"{QUESTION_TEXT}{row}"
+    ws.merge_cells(f"C{row}:F{row}")
+
+
+def split_blanks() -> Workbook:
+    """作答欄 G:I；第 9 列未合併，G9、I9 空白、H9 有文字（兩個互不相連的空白）。"""
+    workbook, ws = _fresh()
+    write_header(ws, answer="G:I")
+    _plain_question(ws, 5, 1)
+    ws.merge_cells("G5:I5")
+    _plain_question(ws, 9, 2)
+    ws["H9"] = "（1）"
     return workbook
 
 
@@ -235,10 +252,10 @@ def whitespace_answer() -> Workbook:
 
 
 def multiple_errors() -> Workbook:
-    """第 7 列沒有填空格、第 9 列有 2 個填空格。"""
-    workbook, ws = _fresh()
-    write_header(ws)
-    add_single(ws, 5, 1)
-    add_single(ws, 7, 2, answer_value="答案")
-    add_single(ws, 9, 3, merge_answer=False)
+    """第 7 列沒有填空格、第 9 列有 2 個互不相連的空白。"""
+    workbook = split_blanks()
+    ws = workbook.active
+    _plain_question(ws, 7, 3)
+    ws["G7"] = "答案"
+    ws.merge_cells("G7:I7")
     return workbook

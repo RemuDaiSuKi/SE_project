@@ -152,15 +152,13 @@ def test_teacher_filled_cell_is_not_structure_change(client, teacher, gateway, r
     assert gateway.value(sid, SHEET, "G5") == "老師手寫"
 
 
-def test_renamed_sheet_still_written(client, teacher, gateway, results):
+def test_renamed_sheet_rejected(client, teacher, gateway, results):
+    # 結構比對包含工作表名稱：匯入後改分頁名稱視為結構不一致（與 SpecKit 組一致）
     ws_id, sid = _import(client, teacher, gateway, "sample_a.xlsx")
     gateway.rename_sheet(sid, SHEET, "第一週")
-    units = units_for_sample_a()
-    units[0] = single(1, rec(1, 1, {1: "改名後"}))
-    results.results[1] = result(ws_id, *units)
-    assert _writeback(client, teacher).status_code == 200
-    assert gateway.writes[0][1][0].sheet_title == "第一週"
-    assert gateway.value(sid, "第一週", "G5") == "改名後"
+    details = _mismatch(client, teacher, results, ws_id)
+    assert details == ["第 1 題原本在 學習單!G5，現在在 第一週!G5"]
+    assert gateway.writes == []
 
 
 # ---------------------------------------------------------------- structure verification
@@ -183,40 +181,44 @@ def test_inserted_row_rejected(client, teacher, gateway, results):
     assert gateway.writes == []
 
 
-def test_changed_sub_label_rejected(client, teacher, gateway, results):
+def test_changed_sub_label_not_checked(client, teacher, gateway, results):
+    # 結構比對只看填空格位置與題組，子題標籤改了仍可寫回（與 SpecKit 組一致）
     ws_id, sid = _import(client, teacher, gateway, "sample_b.xlsx")
     gateway.set_value(sid, SHEET, "G6", "（乙）")
-    results.results[1] = result(ws_id, *units_for_sample_b())
-    response = _writeback(client, teacher)
-    assert response.status_code == 409
-    assert any("第 2 題" in d["message"] for d in response.json()["error"]["details"])
+    units = units_for_sample_b()
+    units[0] = group(1, (1, 2), rec(1, 1, {1: "甲", 2: "乙"}))
+    results.results[1] = result(ws_id, *units)
+    assert _writeback(client, teacher).status_code == 200
+    assert gateway.value(sid, SHEET, "H6") == "乙"
 
 
 def test_deleted_question_text_rejected(client, teacher, gateway, results):
     ws_id, sid = _import(client, teacher, gateway, "sample_a.xlsx")
     gateway.set_value(sid, SHEET, "C9", None)
     details = _mismatch(client, teacher, results, ws_id)
-    assert any("題數不一致" in d for d in details)
+    assert details == ["題數由 6 題變成 5 題"]
 
 
 def test_deleted_sheet_rejected(client, teacher, gateway, results):
     ws_id, sid = _import(client, teacher, gateway, "sample_a.xlsx")
     gateway.delete_sheet(sid, SHEET)
     details = _mismatch(client, teacher, results, ws_id)
-    assert details == ["找不到工作表「學習單」（可能已被刪除）"]
+    assert details == ["目前的學習單找不到同時包含『題號』『題目』『作答』的表頭列"]
 
 
-def test_verify_structure_uses_import_labels(client, teacher, gateway):
+def test_verify_structure_direct(client, teacher, gateway):
     ws_id, sid = _import(client, teacher, gateway, "sample_a.xlsx")
     stored = client.app.state.buzzer.worksheets.get(ws_id)
-    verify_structure(gateway.grid(sid), stored.parsed)  # 不丟出例外
+    labels = stored.parsed.labels
+    verify_structure(gateway.grid(sid), stored.parsed, labels, 500)  # 不丟出例外
     gateway.insert_row(sid, SHEET, 5)
     with pytest.raises(StructureMismatch):
-        verify_structure(gateway.grid(sid), stored.parsed)
+        verify_structure(gateway.grid(sid), stored.parsed, labels, 500)
 
 
-def test_import_time_labels_used_after_settings_change(make_client, settings, password, gateway,
-                                                       results):
+def test_current_label_settings_used_for_verification(make_client, settings, password, gateway,
+                                                      results):
+    # 寫回前以「目前的」表頭設定重新解析（與 SpecKit 組一致）
     client = make_client()
     headers = login(client, password)
     ws_id = import_worksheet(client, headers, gateway, FIXTURES / "sample_a.xlsx")
@@ -225,7 +227,10 @@ def test_import_time_labels_used_after_settings_change(make_client, settings, pa
                                           "label_answer": "回答"})
     restarted = make_client(settings_override=changed)
     headers2 = login(restarted, password)
-    assert _writeback(restarted, headers2).status_code == 200
+    response = _writeback(restarted, headers2)
+    assert response.status_code == 409
+    assert response.json()["error"]["details"] == [
+        {"message": "目前的學習單找不到同時包含『編號』『問題』『回答』的表頭列"}]
 
 
 # ---------------------------------------------------------------- failures
@@ -254,7 +259,7 @@ def test_retry_after_network_failure(client, teacher, gateway, results):
     ws_id, sid = _import(client, teacher, gateway, "sample_a.xlsx")
     gateway.set_value(sid, SHEET, "G5", "老師手寫")
     results.results[1] = result(ws_id, *[single(n, rec(1, 1, {n: f"答{n}"})) for n in range(1, 7)])
-    gateway.write_error = SheetsError("network")
+    gateway.write_error = SheetsError("unavailable")
     assert _writeback(client, teacher).status_code == 502
     gateway.write_error = None
     body = _writeback(client, teacher).json()
@@ -268,11 +273,10 @@ def test_default_source_not_found(make_client, password):
     from app.main import create_app
 
     from .conftest import BASE_URL
-    from .fake_google import FakeGoogleAuth, FakeSheetsGateway
+    from .fake_google import FakeSheetsGateway
 
     client = make_client()
-    app = create_app(client.app.state.buzzer.settings, gateway=FakeSheetsGateway(),
-                     google_auth=FakeGoogleAuth())  # 未注入結果來源
+    app = create_app(client.app.state.buzzer.settings, gateway=FakeSheetsGateway())  # 未注入結果來源
     with TestClient(app, base_url=BASE_URL) as plain:
         headers = login(plain, password)
         assert plain.post("/api/activities/1/writeback", headers=headers).status_code == 404

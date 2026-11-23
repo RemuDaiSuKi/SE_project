@@ -28,12 +28,12 @@ alt 尚未授權 / 授權失效
 end
 Auth --> Gateway : 有效憑證（必要時自動更新並保存）
 Gateway -> Google : GET spreadsheets/{id}?includeGridData&fields=…
-alt 404 / 403 / 400（不是 Google 試算表格式）/ 網路錯誤
+alt 404 / 403（訊息列出授權帳號）/ 其他錯誤或無法連線
   Google --> Gateway : 錯誤
   Gateway --> Api : SheetsError
   Api --> Browser : 繁中錯誤訊息
 end
-Google --> Gateway : 工作表、儲存格值、合併範圍
+Google --> Gateway : 工作表、儲存格顯示值（formattedValue）、合併範圍
 Gateway --> Api : SpreadsheetGrid
 Api -> Parser : parse_grid(grid, labels, 題數上限)
 alt 結構錯誤
@@ -42,19 +42,25 @@ alt 結構錯誤
 end
 Parser --> Api : ParsedWorksheet
 Api -> Previews : add(試算表識別, 結構)
+Previews -> DB : INSERT 預覽（pending，沒有期限）
 Api --> Browser : 201 預覽（題數、題組、每題位置）
 Browser --> Teacher : 顯示確認畫面
 
 alt 老師按「確認」
   Teacher -> Browser : 確認匯入
   Browser -> Api : POST /previews/{id}/confirm
-  Api -> Previews : take(id)
-  Api -> Store : save(preview)
+  Api -> Previews : confirm(id, save)
+  alt 預覽已確認或已取消
+    Api --> Browser : 409「這份預覽已確認或已取消，請重新讀取試算表」
+  end
+  Previews -> Store : save(preview)
   Store -> DB : INSERT 學習單、題組、題目（同一 transaction）
+  Previews -> DB : 預覽標為 confirmed
   Api --> Browser : 201 已確認學習單
 else 老師按「取消」
   Teacher -> Browser : 取消
   Browser -> Api : DELETE /previews/{id}
-  Api -> Previews : discard(id)
+  Api -> Previews : cancel(id)
+  Previews -> DB : 預覽標為 cancelled
 end
 @enduml

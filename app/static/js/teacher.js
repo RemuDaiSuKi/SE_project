@@ -39,30 +39,6 @@ function linkCell(text, href) {
   return td;
 }
 
-async function refreshGoogleStatus() {
-  const text = $("google-status");
-  try {
-    const status = await api.request("GET", "/api/google/status");
-    $("google-command").textContent = status.loginCommand;
-    text.replaceChildren();
-    const strong = document.createElement("span");
-    if (status.authorized) {
-      strong.className = "status-ok";
-      strong.textContent = `已授權 Google 帳號：${status.account ?? "（無法取得帳號 email）"}`;
-    } else if (!status.configured) {
-      strong.className = "status-warn";
-      strong.textContent = "尚未設定 Google OAuth 用戶端，請依 README 建立用戶端設定檔後執行登入指令。";
-    } else {
-      strong.className = "status-warn";
-      strong.textContent = "尚未完成 Google 授權";
-    }
-    text.appendChild(strong);
-    show($("google-help"), !status.authorized);
-  } catch (error) {
-    text.textContent = error.message;
-  }
-}
-
 function showLogin() {
   show($("login-view"), true);
   show($("dashboard"), false);
@@ -75,7 +51,7 @@ async function showDashboard() {
   show($("login-view"), false);
   show($("dashboard"), true);
   show($("logout"), true);
-  await Promise.all([refreshGoogleStatus(), refreshWorksheets()]);
+  await refreshWorksheets();
 }
 
 function groupText(question) {
@@ -185,12 +161,10 @@ $("cancel").addEventListener("click", async () => {
   try {
     await api.request("DELETE", `/api/worksheets/previews/${encodeURIComponent(id)}`);
   } catch {
-    /* 預覽已失效時不需要額外處理 */
+    /* 預覽已確認或已取消時不需要額外處理 */
   }
   $("sheet-url").focus();
 });
-
-$("google-refresh").addEventListener("click", refreshGoogleStatus);
 
 window.addEventListener("buzzer:session-expired", (event) => {
   clearPreview();

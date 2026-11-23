@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.errors import GENERIC_ERROR_MESSAGE
 
-from .conftest import BASE_URL, register_window
+from .conftest import BASE_URL
 
 
 def test_validation_error_is_chinese(client):
@@ -46,26 +46,11 @@ def test_unexpected_error_hides_internals(make_client, teacher, monkeypatch):
         assert leaked not in body
 
 
-@pytest.mark.parametrize("host", ["127.0.0.1:8000", "localhost:8000"])
-def test_local_hosts_allowed(client, host):
+@pytest.mark.parametrize("host", ["127.0.0.1:8000", "localhost:8000", "192.168.0.5:8000"])
+def test_host_header_not_checked(client, host):
+    # 與 SpecKit 組一致：不檢查 Host 標頭，連線範圍由監聽位址（BUZZER_HOST）決定
     response = client.post("/api/windows", headers={"host": host})
     assert response.status_code == 201
-
-
-@pytest.mark.parametrize("host", ["evil.example:8000", "127.0.0.1:9999", "192.168.0.5:8000"])
-def test_other_hosts_rejected(client, host):
-    response = client.post("/api/windows", headers={"host": host})
-    assert response.status_code == 400
-    assert response.json()["error"]["message"] == "不允許的連線來源"
-
-
-def test_rejected_host_has_no_side_effect(make_client, password):
-    client = make_client()
-    window = register_window(client)
-    response = client.post("/api/teacher/login", headers={"host": "evil.example:8000"},
-                           json={"windowId": window, "password": password})
-    assert response.status_code == 400
-    assert "token" not in response.text
 
 
 def test_api_responses_not_cached(client):

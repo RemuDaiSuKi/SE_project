@@ -4,11 +4,12 @@ import pytest
 
 from app.google.errors import SheetsError
 from app.worksheet.model import Labels, ParsedWorksheet
+from app.db import Database
 from app.worksheet.store import PreviewStore
 
 from . import builders
-from .conftest import FIXTURES, FakeClock, import_worksheet, login
-from .fake_google import FakeGoogleAuth, sheet_url
+from .conftest import FIXTURES, import_worksheet, login
+from .fake_google import sheet_url
 
 # ---------------------------------------------------------------- preview store unit
 
@@ -21,29 +22,45 @@ def _add(store: PreviewStore, name: str = "s"):
     return store.add(name, sheet_url(name), "標題", _parsed())
 
 
-def test_preview_expires_after_30_minutes():
-    clock = FakeClock()
-    store = PreviewStore(clock)
+@pytest.fixture
+def store(tmp_path):
+    db = Database(tmp_path / "buzzer.db")
+    yield PreviewStore(db)
+    db.close()
+
+
+def test_preview_confirmed_once(store):
     preview = _add(store)
-    clock.advance(30 * 60 - 1)
-    assert store.take(preview.preview_id) is preview
-    other = _add(store)
-    clock.advance(30 * 60)
-    assert store.take(other.preview_id) is None
+    saved = []
+    assert store.confirm(preview.preview_id, saved.append) is None  # save 的回傳值
+    assert [p.preview_id for p in saved] == [preview.preview_id]
+    assert saved[0].parsed == preview.parsed
+    assert store.confirm(preview.preview_id, saved.append) is None and len(saved) == 1
+    assert store.cancel(preview.preview_id) is False
 
 
-def test_preview_cap_evicts_oldest():
-    store = PreviewStore(FakeClock(), max_items=2)
-    first, second, third = _add(store, "1"), _add(store, "2"), _add(store, "3")
-    assert store.take(first.preview_id) is None
-    assert store.take(second.preview_id) is second and store.take(third.preview_id) is third
-
-
-def test_preview_taken_once():
-    store = PreviewStore(FakeClock())
+def test_preview_cancelled_once(store):
     preview = _add(store)
-    assert store.take(preview.preview_id) is preview
-    assert store.take(preview.preview_id) is None
+    assert store.cancel(preview.preview_id) is True
+    assert store.cancel(preview.preview_id) is False
+    assert store.confirm(preview.preview_id, lambda p: p) is None
+
+
+def test_preview_no_expiry_or_cap(store):
+    # 與 SpecKit 組一致：預覽沒有有效期限，也沒有份數上限
+    previews = [_add(store, str(i)) for i in range(20)]
+    assert all(store.confirm(p.preview_id, lambda x: x) is not None for p in previews)
+
+
+def test_preview_survives_reopen(tmp_path):
+    db = Database(tmp_path / "buzzer.db")
+    parsed = ParsedWorksheet(Labels("題號", "題目", "作答"), (), ())
+    preview = PreviewStore(db).add("s", sheet_url("s"), "標題", parsed)
+    db.close()
+    db = Database(tmp_path / "buzzer.db")
+    restored = PreviewStore(db).confirm(preview.preview_id, lambda p: p)
+    assert restored == preview
+    db.close()
 
 
 # ---------------------------------------------------------------- API
@@ -96,10 +113,9 @@ def test_invalid_url(client, teacher, gateway, url):
 @pytest.mark.parametrize("kind,status,message", [
     ("not_authorized", 409, "尚未完成 Google 授權，請先執行 python -m app google-login"),
     ("auth_expired", 409, "Google 授權已失效，請重新執行 python -m app google-login"),
-    ("forbidden", 403, "目前授權的 Google 帳號沒有這份試算表的讀取或編輯權限，請確認試算表已共用給該帳號"),
-    ("network", 502, "無法連線到 Google，請確認網路連線後再試"),
-    ("api_disabled", 502, "Google Cloud 專案尚未啟用 Google Sheets API，請依 README 啟用後再試"),
-    ("unavailable", 502, "Google 服務暫時無法使用，請稍後再試"),
+    ("forbidden", 403, "目前登入的 Google 帳號沒有這份試算表的編輯權限，"
+                       "請改用有權限的帳號重新登入，或請擁有者把試算表共用給這個帳號（編輯者）"),
+    ("unavailable", 502, "目前無法連線到 Google 試算表，請稍後再試"),
 ])
 def test_google_errors_on_import(client, teacher, gateway, kind, status, message):
     sid = gateway.add(builders.sample_a())
@@ -110,12 +126,11 @@ def test_google_errors_on_import(client, teacher, gateway, kind, status, message
     assert client.get("/api/worksheets", headers=teacher).json()["worksheets"] == []
 
 
-def test_not_spreadsheet_message(client, teacher, gateway):
+def test_forbidden_on_import_names_account(client, teacher, gateway):
     sid = gateway.add(builders.sample_a())
-    gateway.fetch_error = SheetsError("not_spreadsheet")
+    gateway.fetch_error = SheetsError("forbidden", 403, "teacher@example.com")
     message = preview(client, teacher, sid).json()["error"]["message"]
-    assert message.startswith("這個檔案不是 Google 試算表格式")
-    assert "儲存為 Google 試算表" in message
+    assert message.startswith("目前登入的 Google 帳號（teacher@example.com）沒有這份試算表的編輯權限")
 
 
 def test_unknown_spreadsheet(client, teacher):
@@ -144,7 +159,7 @@ def test_double_confirm_rejected(client, teacher, gateway):
     assert client.post(url, headers=teacher).status_code == 201
     again = client.post(url, headers=teacher)
     assert again.status_code == 409
-    assert again.json()["error"]["message"] == "預覽已失效，請重新讀取試算表"
+    assert again.json()["error"]["message"] == "這份預覽已確認或已取消，請重新讀取試算表"
     assert len(client.get("/api/worksheets", headers=teacher).json()["worksheets"]) == 1
 
 
@@ -153,18 +168,20 @@ def test_cancel_then_confirm_rejected(client, teacher, gateway):
     pid = preview(client, teacher, sid).json()["previewId"]
     assert client.delete(f"/api/worksheets/previews/{pid}", headers=teacher).status_code == 200
     assert client.post(f"/api/worksheets/previews/{pid}/confirm", headers=teacher).status_code == 409
+    assert client.delete(f"/api/worksheets/previews/{pid}", headers=teacher).status_code == 409
     assert client.get("/api/worksheets", headers=teacher).json()["worksheets"] == []
     assert preview(client, teacher, gateway.add(builders.sample_b())).status_code == 201
 
 
-def test_preview_expires(client, teacher, gateway, clock):
+def test_preview_does_not_expire(client, teacher, password, gateway, clock):
     pid = preview(client, teacher, gateway.add(builders.sample_a())).json()["previewId"]
-    clock.advance(30 * 60)
-    response = client.post(f"/api/worksheets/previews/{pid}/confirm", headers=teacher)
-    assert response.json()["error"]["message"] == "預覽已失效，請重新讀取試算表"
+    clock.advance(24 * 3600)
+    headers = login(client, password)  # 老師 Token 只有 8 小時，重新登入後再確認
+    response = client.post(f"/api/worksheets/previews/{pid}/confirm", headers=headers)
+    assert response.status_code == 201
 
 
-def test_restart_invalidates_preview_but_keeps_worksheets(make_client, password, gateway):
+def test_preview_confirmable_after_restart(make_client, password, gateway):
     first = make_client()
     headers = login(first, password)
     kept = preview(first, headers, gateway.add(builders.sample_a())).json()
@@ -173,13 +190,16 @@ def test_restart_invalidates_preview_but_keeps_worksheets(make_client, password,
 
     second = make_client()
     headers2 = login(second, password)
+    # 與 SpecKit 組一致：未確認的預覽存在資料庫，重啟後仍可確認
     response = second.post(f"/api/worksheets/previews/{pending['previewId']}/confirm",
                            headers=headers2)
-    assert response.json()["error"]["message"] == "預覽已失效，請重新讀取試算表"
+    assert response.status_code == 201
     listing = second.get("/api/worksheets", headers=headers2).json()["worksheets"]
-    assert [w["questionCount"] for w in listing] == [6]
+    assert [w["questionCount"] for w in listing] == [6, 6]
     detail = second.get(f"/api/worksheets/{listing[0]['id']}", headers=headers2).json()
     assert detail["questions"] == kept["questions"]
+    assert second.get(f"/api/worksheets/{listing[1]['id']}",
+                      headers=headers2).json()["questions"] == pending["questions"]
 
 
 def test_same_spreadsheet_can_be_imported_twice(client, teacher, gateway):
@@ -204,7 +224,7 @@ def test_rejected_import_returns_details(client, teacher, gateway):
 
 def test_blank_spreadsheet(client, teacher, gateway):
     response = preview(client, teacher, gateway.add(builders.blank_workbook()))
-    assert response.json()["error"]["message"] == "試算表沒有任何內容"
+    assert response.json()["error"]["message"] == "找不到同時包含『題號』『題目』『作答』的表頭列"
 
 
 def test_question_limit_from_settings(make_client, settings, password, gateway):
@@ -240,23 +260,6 @@ def test_preview_requires_teacher(client, gateway):
 # ---------------------------------------------------------------- Google 授權狀態
 
 
-@pytest.mark.parametrize("auth,expected", [
-    (FakeGoogleAuth(configured=False, authorized=False),
-     {"configured": False, "authorized": False, "account": None}),
-    (FakeGoogleAuth(configured=True, authorized=False),
-     {"configured": True, "authorized": False, "account": None}),
-    (FakeGoogleAuth(account="teacher@example.com"),
-     {"configured": True, "authorized": True, "account": "teacher@example.com"}),
-])
-def test_google_status(make_client, password, auth, expected):
-    client = make_client(google_auth_override=auth)
-    headers = login(client, password)
-    body = client.get("/api/google/status", headers=headers).json()
-    assert {k: body[k] for k in expected} == expected
-    assert body["loginCommand"] == "python -m app google-login"
-
-
-def test_google_status_requires_teacher(client):
-    response = client.get("/api/google/status")
-    assert response.status_code == 403
-    assert "teacher@example.com" not in response.text
+def test_google_status_endpoint_removed(client, teacher):
+    # 與 SpecKit 組一致：老師頁面不顯示 Google 授權狀態（未授權時伺服器不會啟動）
+    assert client.get("/api/google/status", headers=teacher).status_code == 404

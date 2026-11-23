@@ -11,10 +11,6 @@ from datetime import date, datetime, time
 from .grid import Pos, SheetGrid, SpreadsheetGrid, cell_ref
 from .model import ImportIssue, ImportRejected, Labels, ParsedWorksheet, Question, QuestionGroup
 
-MAX_REPORTED_ISSUES = 50
-EMPTY_SPREADSHEET_MESSAGE = "試算表沒有任何內容"
-
-
 def is_blank(value: object) -> bool:
     """沒有值，或只有空白字元（含全形空白）。公式與數值都算非空白。"""
     return value is None or (isinstance(value, str) and value.strip() == "")
@@ -95,9 +91,6 @@ class _SheetView:
         bounds = self.bounds.get(pos)
         return (bounds[1], bounds[3]) if bounds else (pos[1], pos[1])
 
-    def has_content(self) -> bool:
-        return any(not is_blank(self.value(pos)) for pos in self.values)
-
     def find_header(self, labels: Labels) -> _Header | None:
         wanted = {labels.no: "no", labels.question: "question", labels.answer: "answer"}
         rows: dict[int, dict[str, tuple[int, int]]] = {}
@@ -118,29 +111,29 @@ class _SheetView:
                 return _Header(row, found["no"], found["question"], found["answer"])
         return None
 
-    def _field_value(self, row: int, span: tuple[int, int]) -> object:
-        """span 內第一個非空白的視覺值；合併儲存格只歸屬於左上角所在的欄範圍。"""
+    def _row_value(self, row: int, span: tuple[int, int]) -> object:
+        """這一列在 span 內第一個有內容的儲存格值。
+
+        只看位在這一列本身的儲存格：被上方合併範圍覆蓋的格子不算（縱向合併只屬於最上面那列）。
+        """
         for col in range(span[0], span[1] + 1):
-            top_left = self.anchor_of((row, col))
-            if _in(span, top_left[1]):
-                value = self.value(top_left)
+            pos = (row, col)
+            if self.anchor_of(pos) == pos:
+                value = self.value(pos)
                 if not is_blank(value):
                     return value
         return None
 
     def is_question_row(self, row: int, header: _Header) -> bool:
-        return self._field_value(row, header.question_span) is not None
+        return self._row_value(row, header.question_span) is not None
 
     def answer_cells(self, row: int, header: _Header) -> list[Pos]:
+        """作答範圍內屬於這一列的儲存格，依欄順序；合併範圍算一格，以左上角代表。"""
         cells: list[Pos] = []
-        seen: set[Pos] = set()
         for col in range(header.answer_span[0], header.answer_span[1] + 1):
-            top_left = self.anchor_of((row, col))
-            if top_left in seen:
-                continue
-            seen.add(top_left)
-            if top_left[0] == row and _in(header.answer_span, top_left[1]):
-                cells.append(top_left)
+            pos = (row, col)
+            if self.anchor_of(pos) == pos:
+                cells.append(pos)
         return cells
 
     def parse(self, header: _Header, issues: list[ImportIssue]) -> _SheetResult:
@@ -152,40 +145,48 @@ class _SheetView:
 
         for row in question_rows:
             cells = self.answer_cells(row, header)
-            blanks = [p for p in cells if is_blank(self.value(p))]
-            labelled = [p for p in cells if not is_blank(self.value(p))]
-            if len(blanks) != 1:
-                if not blanks:
+            # 相鄰的空白儲存格視為同一個填空區段，以最左邊的儲存格代表（與 SpecKit 組一致）
+            segments: list[Pos] = []
+            previous_blank = False
+            for pos in cells:
+                blank = is_blank(self.value(pos))
+                if blank and not previous_blank:
+                    segments.append(pos)
+                previous_blank = blank
+            if len(segments) != 1:
+                if not segments:
                     message = f"工作表「{self.title}」第 {row} 列：作答欄沒有空白填空格"
                 else:
-                    refs = "、".join(cell_ref(p) for p in blanks)
-                    message = (f"工作表「{self.title}」第 {row} 列：作答欄有 {len(blanks)} 個"
-                               f"填空格（{refs}）")
+                    refs = "、".join(cell_ref(p) for p in segments)
+                    message = (f"工作表「{self.title}」第 {row} 列：作答欄有 {len(segments)} 個"
+                               f"互不相連的空白區（{refs}），每個題目列只能有一個填空格")
                 issues.append(ImportIssue(message, self.title, f"第 {row} 列"))
                 continue
-            source = self._field_value(row, header.no_span)
-            sub_label = " ".join(format_value(self.value(p)) for p in labelled) or None
+            source = self._row_value(row, header.no_span)
+            # 子題標籤：作答範圍內第一個有內容的儲存格
+            label = next((self.value(p) for p in cells if not is_blank(self.value(p))), None)
             result.rows.append(_RowResult(
                 row=row,
-                cell=blanks[0],
+                cell=segments[0],
                 source_no=format_value(source) if source is not None else None,
-                sub_label=sub_label,
+                sub_label=format_value(label) if label is not None else None,
             ))
 
         for top_left, (r0, c0, r1, c1) in sorted(self.bounds.items()):
             if not _in(header.no_span, c0) or r0 <= header.row or r1 == r0:
                 continue
+            # 題號欄縱向合併的每一列都必須是題目列，否則整份拒絕（與 SpecKit 組一致）
             covered = list(range(r0, r1 + 1))
             grouped = [r for r in covered if r in question_row_set]
-            if len(grouped) < 2:
-                continue  # 只跨一個題目列：不是題組
             range_ref = f"{cell_ref((r0, c0))}:{cell_ref((r1, c1))}"
             missing = [r for r in covered if r not in question_row_set]
             if missing:
-                rows_text = "、".join(f"第 {r} 列" for r in missing)
-                issues.append(ImportIssue(
-                    f"工作表「{self.title}」題組範圍 {range_ref} 包含非題目列（{rows_text}）",
-                    self.title, range_ref))
+                # 每個非題目列各算一處問題（與 SpecKit 組一致）
+                for r in missing:
+                    issues.append(ImportIssue(
+                        f"工作表「{self.title}」題組範圍 {range_ref} 的第 {r} 列不是題目列，"
+                        "題組的每一列都必須是題目列",
+                        self.title, range_ref))
                 continue
             value = self.value(top_left)
             result.groups.append(_GroupResult(
@@ -200,9 +201,6 @@ def parse_grid(grid: SpreadsheetGrid, labels: Labels,
                max_questions: int | None = None) -> ParsedWorksheet:
     """解析學習單；任何問題都會以 ImportRejected 整份拒絕。"""
     views = [_SheetView(sheet) for sheet in grid.sheets]
-    if not any(view.has_content() for view in views):
-        raise _reject(EMPTY_SPREADSHEET_MESSAGE)
-
     issues: list[ImportIssue] = []
     parsed: list[tuple[_SheetView, _SheetResult]] = []
     for view in views:
@@ -211,19 +209,20 @@ def parse_grid(grid: SpreadsheetGrid, labels: Labels,
             continue
         parsed.append((view, view.parse(header, issues)))
 
+    # 檢查順序與 SpecKit 組一致：表頭 → 逐列問題（一次全部列出）→ 沒有題目列 → 題數上限
     if not parsed:
         raise _reject(f"找不到同時包含『{labels.no}』『{labels.question}』『{labels.answer}』的表頭列")
 
-    if not issues and not any(result.rows for _, result in parsed):
+    if issues:
+        raise ImportRejected(issues)
+
+    if not any(result.rows for _, result in parsed):
         names = "、".join(f"「{view.title}」" for view, _ in parsed)
         raise _reject(f"找不到任何題目列（已找到表頭的工作表：{names}）")
 
     total = sum(len(result.rows) for _, result in parsed)
     if max_questions is not None and total > max_questions:
-        issues.append(ImportIssue(f"題目數 {total} 超過上限 {max_questions}"))
-
-    if issues:
-        raise ImportRejected(issues[:MAX_REPORTED_ISSUES], total=len(issues))
+        raise _reject(f"題目數 {total} 超過上限 {max_questions}")
 
     questions: list[Question] = []
     groups: list[QuestionGroup] = []

@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # 第 1 版以 .xlsx 原始檔為來源，沒有試算表 ID，無法轉換；升級時捨棄（design.md D8）
 _DROP_V1 = """
@@ -53,6 +53,20 @@ CREATE TABLE IF NOT EXISTS worksheet_questions (
 );
 """
 
+# 第 3 版：未確認的匯入預覽改存資料庫，沒有有效期限、重啟後仍可確認（與 SpecKit 組一致）。
+# 只新增資料表，不動既有的學習單資料。
+_SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS worksheet_previews (
+    preview_id       TEXT    PRIMARY KEY,
+    spreadsheet_id   TEXT    NOT NULL,
+    spreadsheet_url  TEXT    NOT NULL,
+    title            TEXT    NOT NULL,
+    parsed_json      TEXT    NOT NULL,
+    status           TEXT    NOT NULL CHECK (status IN ('pending', 'confirmed', 'cancelled')),
+    created_at       TEXT    NOT NULL
+);
+"""
+
 
 class Database:
     """單一連線，以鎖序列化存取（伺服器為單一程序）。"""
@@ -74,6 +88,8 @@ class Database:
                 self._conn.executescript(_DROP_V1)
             if version < 2:
                 self._conn.executescript(_SCHEMA_V2)
+            if version < 3:
+                self._conn.executescript(_SCHEMA_V3)
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     @contextmanager

@@ -9,40 +9,37 @@ from fastapi.responses import JSONResponse
 
 from ..errors import error_response
 
-SheetsErrorKind = Literal[
-    "not_authorized", "auth_expired", "not_found", "forbidden", "api_disabled",
-    "not_spreadsheet", "network", "unavailable",
-]
+SheetsErrorKind = Literal["not_authorized", "auth_expired", "not_found", "forbidden", "unavailable"]
 
 LOGIN_HINT = "python -m app google-login"
 
+# 分類與 SpecKit 組一致：401 授權失效、403 沒有權限、404 找不到，其他（含無法連線）一律為暫時無法使用
 MESSAGES: dict[str, tuple[int, str]] = {
     "not_authorized": (409, f"尚未完成 Google 授權，請先執行 {LOGIN_HINT}"),
     "auth_expired": (409, f"Google 授權已失效，請重新執行 {LOGIN_HINT}"),
     "not_found": (404, "找不到試算表，請確認網址是否正確"),
-    "forbidden": (403, "目前授權的 Google 帳號沒有這份試算表的讀取或編輯權限，"
-                       "請確認試算表已共用給該帳號"),
-    "api_disabled": (502, "Google Cloud 專案尚未啟用 Google Sheets API，請依 README 啟用後再試"),
-    "not_spreadsheet": (400, "這個檔案不是 Google 試算表格式，請先在 Google 試算表中選擇"
-                             "「檔案 → 儲存為 Google 試算表」後再使用新檔案的網址"),
-    "network": (502, "無法連線到 Google，請確認網路連線後再試"),
-    "unavailable": (502, "Google 服務暫時無法使用，請稍後再試"),
+    "forbidden": (403, "目前登入的 Google 帳號{account}沒有這份試算表的編輯權限，"
+                       "請改用有權限的帳號重新登入，或請擁有者把試算表共用給這個帳號（編輯者）"),
+    "unavailable": (502, "目前無法連線到 Google 試算表，請稍後再試"),
 }
 
 
 class SheetsError(Exception):
-    """Google 存取失敗。只保存分類與 HTTP 狀態碼，不保存 Google 的原始回應。"""
+    """Google 存取失敗。只保存分類、HTTP 狀態碼與授權帳號，不保存 Google 的原始回應。"""
 
-    def __init__(self, kind: SheetsErrorKind, status: int | None = None) -> None:
+    def __init__(self, kind: SheetsErrorKind, status: int | None = None,
+                 account: str | None = None) -> None:
         super().__init__(kind)
         self.kind = kind
         self.status = status
+        self.account = account
 
     @property
     def message(self) -> str:
-        return MESSAGES[self.kind][1]
+        account = f"（{self.account}）" if self.account else ""
+        return MESSAGES[self.kind][1].format(account=account)
 
 
 async def sheets_error_handler(_: Request, exc: SheetsError) -> JSONResponse:
-    status, message = MESSAGES[exc.kind]
-    return error_response(status, f"GOOGLE_{exc.kind.upper()}", message)
+    status, _message = MESSAGES[exc.kind]
+    return error_response(status, f"GOOGLE_{exc.kind.upper()}", exc.message)
