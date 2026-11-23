@@ -1,10 +1,10 @@
-# Spec Delta
+# result-visibility Specification
 
 ## Purpose
 
-規定學生與老師在活動各階段能看到哪些資料，確保結束前各組看不到他組的送出與單位狀態。
+規定學生與老師在活動各階段能看到哪些資料：結束前各組只看得到自己組的送出，看不到他組的送出與單位狀態；結束後才公開每個單位的成功組與成功答案。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 學生的本組畫面
 學生 SHALL 只看到以下資料：

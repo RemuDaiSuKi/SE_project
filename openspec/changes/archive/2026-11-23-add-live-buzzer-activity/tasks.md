@@ -65,4 +65,4 @@
 ## 9. 與 SpecKit 組比對
 
 - [x] 9.1 以 design D11 的方法執行差異測試，把結果記在 design.md D11
-- [ ] 9.2 封存本 change（`/openspec-archive-change`），把 delta spec 同步進主 spec
+- [x] 9.2 封存本 change（`/openspec-archive-change`），把 delta spec 同步進主 spec
