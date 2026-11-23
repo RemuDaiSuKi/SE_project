@@ -103,7 +103,12 @@ app/realtime.py        WebSocket 端點與推播中心 Hub
 
 檢查順序為：視窗鎖定 → 全體上限 → 格式 → 比對，與對方的 `check_allowed` 相同。
 
-視窗 ID 沿用本組的伺服器註冊機制（`POST /api/windows`），放在請求 body 的 `windowId`，與老師登入相同。未註冊的視窗回應 `WINDOW_UNKNOWN`，`api.js` 會自動重新註冊一次。
+視窗 ID 與 SpecKit 組相同：
+- 由學生頁自己產生（`crypto.randomUUID()`），存在 sessionStorage。
+- 放在 `X-Window-Id` 標頭，最多 128 字，不需要先向伺服器註冊。
+- 沒有帶標頭時視為同一個「unknown-window」。
+
+老師登入仍使用既有的 `POST /api/windows` 註冊機制，兩者互不影響。
 
 ### D6. 學生身分
 
@@ -180,7 +185,7 @@ WebSocket 的第一則訊息必須是 `{"type": "auth", "token": ...}`，逾時�
 | POST | `/api/activities/{id}/units/{unitKey}/invalidate` | 老師 | 判定無效 |
 | GET | `/api/activities/{id}/results` | 老師或該活動的學生 | 結果 |
 | GET | `/api/activities/{id}/phase` | 公開 | 只回傳階段 |
-| POST | `/api/join` | 任何視窗 | `windowId`、`code`，多餘欄位拒絕 |
+| POST | `/api/join` | 任何視窗 | body `code`、標頭 `X-Window-Id`，多餘欄位拒絕 |
 | POST | `/api/submissions` | 學生 | `unitKey`、`answers`，多餘欄位拒絕 |
 | GET | `/api/me` | 學生 | 本組畫面 |
 | WS | `/ws` | 老師或學生 | 即時同步 |

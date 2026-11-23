@@ -37,10 +37,20 @@ class Settings(BaseSettings):
     # 老師登入：全體共用一個失敗計數（與 SpecKit 組一致）
     login_max_failures: int = Field(default=5, ge=1, le=1000)
     login_lock_seconds: int = Field(default=300, ge=1, le=86_400)
-    # 以視窗為單位的鎖定：保留給組別代碼輸入（搶答活動 change）
+    # 輸入組別代碼：以視窗為單位的鎖定，加上全體最近 60 秒的失敗上限（與 SpecKit 組一致）
     lockout_max_failures: int = Field(default=5, ge=1, le=1000)
     lockout_seconds: int = Field(default=60, ge=1, le=86_400)
+    join_global_max_failures: int = Field(default=60, ge=1, le=100_000)
     token_ttl_hours: int = Field(default=8, ge=1, le=24 * 30)
+
+    # 搶答活動
+    max_teams: int = Field(default=20, ge=1, le=1000)
+    team_name_max: int = Field(default=20, ge=1, le=1000)
+    max_answer_length: int = Field(default=200, ge=1, le=100_000)
+    fairness_enabled: bool = True
+    cooldown_seconds: int = Field(default=10, ge=1, le=600)
+    cooldown_lead: int = Field(default=2, ge=1, le=100)
+    ws_auth_timeout_seconds: float = Field(default=5, ge=0.1, le=60)
 
     @field_validator("label_no", "label_question", "label_answer", "host")
     @classmethod
