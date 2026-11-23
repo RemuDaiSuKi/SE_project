@@ -28,6 +28,9 @@ def test_defaults():
     assert s.google_token_path == Path("data") / "google-token.json"
     assert s.google_timeout_seconds == 10
     assert not hasattr(s, "max_upload_mb")
+    assert (s.max_teams, s.team_name_max, s.max_answer_length) == (20, 20, 200)
+    assert (s.fairness_enabled, s.cooldown_seconds, s.cooldown_lead) == (True, 10, 2)
+    assert s.join_global_max_failures == 60 and s.ws_auth_timeout_seconds == 5
 
 
 def test_google_paths_follow_data_dir_and_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -60,6 +63,12 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     ("google_timeout_seconds", "0", "BUZZER_GOOGLE_TIMEOUT_SECONDS"),
     ("host", "  ", "BUZZER_HOST"),
     ("login_lock_seconds", "0", "BUZZER_LOGIN_LOCK_SECONDS"),
+    ("cooldown_seconds", "601", "BUZZER_COOLDOWN_SECONDS"),
+    ("cooldown_lead", "0", "BUZZER_COOLDOWN_LEAD"),
+    ("max_teams", "0", "BUZZER_MAX_TEAMS"),
+    ("max_answer_length", "0", "BUZZER_MAX_ANSWER_LENGTH"),
+    ("fairness_enabled", "maybe", "BUZZER_FAIRNESS_ENABLED"),
+    ("ws_auth_timeout_seconds", "61", "BUZZER_WS_AUTH_TIMEOUT_SECONDS"),
 ])
 def test_invalid_values_report_setting_name(field, value, env):
     with pytest.raises(ValidationError) as info:

@@ -134,6 +134,13 @@ TEACHER_ENDPOINTS = [
     ("GET", "/api/worksheets/1"),
     ("POST", "/api/activities/1/writeback"),
     ("GET", "/api/activities/1/results.csv"),
+    ("POST", "/api/activities"),
+    ("GET", "/api/activities"),
+    ("GET", "/api/activities/1"),
+    ("POST", "/api/activities/1/start"),
+    ("POST", "/api/activities/1/end"),
+    ("POST", "/api/activities/1/teams/1/regenerate-code"),
+    ("POST", "/api/activities/1/units/Q1/invalidate"),
 ]
 
 
@@ -184,7 +191,9 @@ def test_env_example_and_gitignore():
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert "BUZZER_TEACHER_PASSWORD=change-me" in example
     for name in ("BUZZER_GOOGLE_TIMEOUT_SECONDS", "BUZZER_HOST", "BUZZER_LOGIN_MAX_FAILURES",
-                 "BUZZER_LOGIN_LOCK_SECONDS"):
+                 "BUZZER_LOGIN_LOCK_SECONDS", "BUZZER_JOIN_GLOBAL_MAX_FAILURES", "BUZZER_MAX_TEAMS",
+                 "BUZZER_TEAM_NAME_MAX", "BUZZER_MAX_ANSWER_LENGTH", "BUZZER_FAIRNESS_ENABLED",
+                 "BUZZER_COOLDOWN_SECONDS", "BUZZER_COOLDOWN_LEAD", "BUZZER_WS_AUTH_TIMEOUT_SECONDS"):
         assert name in example
     ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     for pattern in (".env", "data/", "client_secret*.json", "google-client-secret*.json",
