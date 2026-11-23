@@ -7,7 +7,7 @@
 - 線上分組搶答：組別代碼、即時同步、冷卻、判定無效、結束保存（change `add-live-buzzer-activity`，行為與 SpecKit 組的 002 一致）。
 - 答案寫回與 CSV 匯出。
 
-設計圖在 [`diagrams/`](diagrams/)（PlantUML 原始檔與 PNG），規格在 [`openspec/specs/`](openspec/specs/)。
+設計圖在 [`diagrams/`](diagrams/)（PlantUML 原始檔），規格在 [`openspec/specs/`](openspec/specs/)。
 
 ## 需求
 
@@ -127,7 +127,7 @@ Copy-Item .env.example .env
 
 ## 設計圖
 
-`diagrams/*.puml` 是 PlantUML 原始檔，同名的 `.png` 是轉出的圖。修改 `.puml` 後需要重新轉檔（需要 Java）：
+`diagrams/*.puml` 是 PlantUML 原始檔，repo 不提交轉出的 PNG。想看圖時可以自行轉檔（需要 Java），產生的 PNG 不要 commit：
 
 1. 從 Maven Central 下載 `net.sourceforge.plantuml:plantuml` 的 jar（例如 1.2026.10），放到 `.tools/`（已列入 `.gitignore`）。
 2. 在專案根目錄執行：
