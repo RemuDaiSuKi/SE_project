@@ -66,6 +66,72 @@
           </table>
         </div>
       </section>
+
+      <section class="card">
+        <h2>建立搶答活動</h2>
+        <form id="create-form">
+          <label for="create-worksheet">學習單</label>
+          <select id="create-worksheet" required></select>
+          <label for="create-teams" style="margin-top:12px">組名（一行一組）</label>
+          <textarea id="create-teams" required>第一組
+第二組
+第三組</textarea>
+          <label class="inline" style="margin-top:12px">
+            <input id="create-fairness" type="checkbox" checked> 啟用冷卻（領先其他組別太多時暫停送出）
+          </label>
+          <div class="grid-2">
+            <div>
+              <label for="create-lead">領先題數 K（空白為預設）</label>
+              <input id="create-lead" type="number" min="1" max="100" placeholder="2">
+            </div>
+            <div>
+              <label for="create-seconds">冷卻秒數 N（空白為預設）</label>
+              <input id="create-seconds" type="number" min="1" max="600" placeholder="10">
+            </div>
+          </div>
+          <div class="row"><button id="create-button" class="primary" type="submit">建立活動</button></div>
+        </form>
+        <div id="create-message" class="message hidden" role="alert"></div>
+      </section>
+
+      <section id="activity" class="card hidden" aria-live="polite">
+        <h2>活動 <span id="activity-id"></span>：<span id="activity-phase"></span></h2>
+        <div class="chips"><span class="chip" id="activity-fairness"></span></div>
+        <div class="row">
+          <button id="start" class="primary" type="button">開始搶答</button>
+          <button id="end" type="button">結束活動</button>
+          <button id="writeback" class="primary hidden" type="button">寫回答案</button>
+          <button id="download-csv" class="hidden" type="button">下載 CSV</button>
+        </div>
+        <div id="activity-message" class="message hidden" role="alert"></div>
+
+        <h2 style="margin-top:16px">組別</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>組名</th><th>組別代碼</th><th>成功數</th><th>冷卻</th><th></th></tr></thead>
+            <tbody id="team-rows"></tbody>
+          </table>
+        </div>
+
+        <h2 style="margin-top:16px">搶答單位</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>搶答單位</th><th>狀態</th><th>送出（順位、組別、答案、結果）</th><th></th></tr></thead>
+            <tbody id="unit-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>活動清單</h2>
+        <p id="activities-empty" class="muted">尚未建立任何活動。</p>
+        <div class="table-wrap">
+          <table id="activities-table" class="hidden">
+            <thead><tr><th>編號</th><th>學習單</th><th>階段</th><th>建立時間</th><th>結束時間</th><th></th></tr></thead>
+            <tbody id="activities-rows"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </main>
 </body>

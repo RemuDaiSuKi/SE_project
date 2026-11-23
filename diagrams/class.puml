@@ -1,5 +1,5 @@
 @startuml class
-title 課堂搶答系統 類別圖（學習單、Google 存取、結果契約）
+title 課堂搶答系統 類別圖（學習單、Google 存取、搶答活動、結果契約）
 skinparam defaultFontName "Microsoft JhengHei"
 hide empty members
 
@@ -157,6 +157,106 @@ package "活動結果契約" {
   ResultUnit *-- "many" ResultRecord
   FinalResultSource ..> ActivityResult
 }
+
+package "搶答活動" {
+  class ActivityRegistry {
+    latest: ActivityEngine?
+    current: ActivityEngine?
+    startup(): int
+    create(worksheet_id, teams, fairness, N, K): ActivityEngine
+    get(activity_id): ActivityEngine
+    phase_of(activity_id): str
+    find_team_by_code(code): (ActivityEngine, TeamState)?
+  }
+  class ActivityEngine {
+    info: ActivityInfo
+    units: list[BuzzUnit]
+    teams: dict[int, TeamState]
+    submissions: list[Submission]
+    cooldowns: dict[int, Cooldown]
+    start() / end()
+    submit(team, version, unit_key, answers)
+    invalidate(unit_key)
+    regenerate_code(team)
+    view_for_teacher() / view_for_team(team) / results_view()
+    to_result(): ActivityResult
+  }
+  note right of ActivityEngine
+    成功者一律以 winner_of 推導；
+    所有變更在 asyncio.Lock 內依序執行
+  end note
+  class ActivityInfo {
+    id: int
+    worksheet_id: int
+    phase: preparing | running | ended | interrupted
+    fairness_enabled: bool
+    cooldown_seconds: int
+    cooldown_lead: int
+  }
+  class TeamState {
+    id: int
+    name: str
+    code_hash: str
+    code_version: int
+    code: str?（只在記憶體）
+  }
+  class Submission {
+    id: int
+    unit_key: str
+    team_id: int
+    answers: dict[int, str]
+    rank: int
+    invalidated: bool
+  }
+  class Cooldown {
+    until: float
+    trigger_id: int
+  }
+  class BuzzUnit {
+    key: str（單題 Qn、題組 Gn）
+    question_nos: tuple[int]
+    display: str
+  }
+  class Event {
+    audience: teacher | team | all | revoke
+    payload: dict
+    team_id: int?
+  }
+  class JoinLimiter {
+    check_allowed(window)
+    record_failure(window)
+    record_success(window)
+  }
+  class SqliteActivityRepository {
+    create_activity(...)
+    persist_results(...)
+    update_invalidation(...)
+    mark_unfinished_interrupted()
+  }
+  class SqliteResultSource {
+    lookup(activity_id): FinalResultLookup
+  }
+  class Hub {
+    connections: list[Connection]
+    dispatch(engine, events)
+  }
+  ActivityRegistry o-- "many" ActivityEngine
+  ActivityRegistry --> SqliteActivityRepository
+  ActivityEngine *-- ActivityInfo
+  ActivityEngine *-- "many" TeamState
+  ActivityEngine *-- "many" Submission
+  ActivityEngine *-- "many" Cooldown
+  ActivityEngine *-- "many" BuzzUnit
+  ActivityEngine ..> Event
+  ActivityEngine --> SqliteActivityRepository
+  Hub --> ActivityRegistry
+  Hub ..> Event
+  SqliteResultSource --> SqliteActivityRepository
+}
+
+SqliteResultSource ..|> FinalResultSource
+ActivityEngine ..> ActivityResult : to_result
+BuzzUnit ..> ParsedWorksheet : build_units
 
 class WritebackReport {
   written: tuple[int]

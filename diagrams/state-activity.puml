@@ -1,0 +1,19 @@
+@startuml state-activity
+title 狀態圖：搶答活動的階段
+skinparam defaultFontName "Microsoft JhengHei"
+
+state "準備中" as Preparing : 可加入、可重新產生代碼\n不能送出、不能判定無效
+state "搶答中" as Running : 可加入、送出、判定無效、重新產生代碼
+state "已結束" as Ended : 代碼失效；可檢視結果、判定無效、寫回、匯出 CSV
+state "已中斷" as Interrupted : 不能再操作；老師重新建立活動
+
+[*] --> Preparing : 老師建立活動\n（同一時間只能有一場準備中或搶答中）
+Preparing --> Running : 開始（至少 1 個單位與 1 組）
+Running --> Ended : 結束（全部送出寫入資料庫成功後）
+Running --> Running : 保存失敗（維持搶答中）
+Preparing --> Interrupted : 伺服器重啟
+Running --> Interrupted : 伺服器重啟
+Ended --> Ended : 判定無效（先寫入資料庫）
+
+note bottom of Preparing : 沒有取消；不能從準備中直接結束
+@enduml

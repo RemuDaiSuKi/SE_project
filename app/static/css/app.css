@@ -125,3 +125,19 @@ th { color: var(--muted); font-weight: 600; }
 .status-ok { color: var(--ok); font-weight: 600; }
 .status-warn { color: var(--danger); font-weight: 600; }
 .hidden { display: none !important; }
+
+/* 搶答活動 */
+input[type="text"], input[type="number"], textarea, select {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 6px; font: inherit; background: transparent; color: inherit;
+}
+textarea { min-height: 72px; resize: vertical; }
+.inline { display: flex; gap: 8px; align-items: center; font-weight: normal; }
+.inline input { width: auto; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.units { display: grid; gap: 12px; }
+.unit { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.unit h3 { font-size: 1rem; margin: 0 0 8px; }
+.unit label { margin-top: 8px; }
+.code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1.1rem; letter-spacing: .12em; }
+.wrap { white-space: normal; }

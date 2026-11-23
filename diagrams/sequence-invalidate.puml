@@ -1,0 +1,38 @@
+@startuml sequence-invalidate
+title 時序圖：判定無效與遞補
+skinparam defaultFontName "Microsoft JhengHei"
+autonumber
+
+actor "老師" as Teacher
+participant "POST /api/activities/{id}\n/units/{unitKey}/invalidate" as Api
+participant "ActivityEngine" as Engine
+participant "SqliteActivityRepository" as Repo
+participant "Hub" as Hub
+participant "被判無效的組" as Loser
+participant "遞補的組" as Winner
+
+Teacher -> Api : 判定無效
+Api -> Engine : invalidate(unit_key)
+activate Engine
+alt 不是搶答中或已結束／單位不存在／沒有成功者
+  Engine --> Api : 409 / 404
+else
+  opt 已結束
+    Engine -> Repo : update_invalidation（先寫入資料庫）
+  end
+  Engine -> Engine : 目前的成功者標為無效
+  Engine -> Engine : winner_of 重新推導：順位最小的「未搶到」遞補\n（遞補不觸發冷卻）
+  alt 沒有可遞補的紀錄
+    Engine -> Engine : 搶答中 → 重新開放；已結束 → 無人搶答
+  end
+  opt 被判無效的正是觸發冷卻的那筆
+    Engine -> Engine : 解除該組冷卻
+  end
+  Engine --> Api : 結果與事件
+  deactivate Engine
+  Api -> Hub : dispatch
+  Hub -> Loser : 「<單位>的答案已被老師判定無效」
+  Hub -> Winner : 「<單位>遞補為搶答成功」
+  Hub -> Teacher : invalidated / promoted
+end
+@enduml

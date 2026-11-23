@@ -1,0 +1,37 @@
+@startuml sequence-submit
+title 時序圖：送出與判定（含冷卻）
+skinparam defaultFontName "Microsoft JhengHei"
+autonumber
+
+participant "各組視窗" as Browser
+participant "POST /api/submissions" as Api
+participant "ActivityEngine" as Engine
+participant "結果契約\nwinner_of / success_counts" as Contract
+participant "Hub" as Hub
+participant "老師視窗" as Teacher
+participant "同組其他視窗" as Peer
+
+Browser -> Api : {unitKey, answers}（多餘欄位以格式錯誤拒絕）
+Api -> Engine : submit(組別, 代碼版本, 單位, 答案)
+activate Engine
+note right of Engine : 取得 asyncio.Lock：取得順序就是伺服器處理順序
+Engine -> Engine : 1 階段 2 代碼版本 3 冷卻 4 單位\n5 題號集合 6 答案 7 已送出
+alt 任一步失敗
+  Engine --> Api : SubmissionRejected（不留紀錄、不佔順位）
+  Api --> Browser : 錯誤訊息
+else 通過
+  Engine -> Engine : 順位 = 該單位紀錄數 + 1
+  Engine -> Contract : winner_of（目前沒有成功者 → 成功）
+  opt 成功且啟用冷卻
+    Engine -> Contract : success_counts
+    Engine -> Engine : 該組成功數 − 全體最少成功數 ≥ K → 冷卻 N 秒
+  end
+  Engine --> Api : 結果與事件
+  deactivate Engine
+  Api -> Hub : dispatch（鎖已釋放）
+  Hub -> Teacher : submission（組別、答案、順位、結果）
+  Hub -> Peer : teamSubmission（只有本組）
+  Hub -> Teacher : cooldown（若觸發）
+  Api --> Browser : 「搶答成功！」或「未搶到，第 N 順位」
+end
+@enduml
