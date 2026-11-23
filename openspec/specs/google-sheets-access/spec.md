@@ -21,24 +21,6 @@
 - **WHEN** 老師在瀏覽器拒絕授權或關閉授權頁面
 - **THEN** 指令顯示「Google 授權未完成」並以非零結束碼結束，原有的授權檔保持不變
 
-### Requirement: 授權狀態
-老師 SHALL 能在老師頁面看到 Google 授權狀態：尚未設定 OAuth 用戶端、尚未授權，或已授權（顯示授權的帳號 email）。
-
-#### Scenario: 已授權
-- **WHEN** 已完成授權的老師開啟老師頁面
-- **THEN** 頁面顯示「已授權 Google 帳號：<帳號 email>」
-
-#### Scenario: 尚未授權
-- **WHEN** 授權檔不存在時老師開啟老師頁面
-- **THEN** 頁面顯示「尚未完成 Google 授權」與登入指令的使用說明
-
-### Requirement: 未授權時仍可啟動
-伺服器 SHALL 能在尚未完成 Google 授權時啟動；此時讀取或寫入 Google 試算表的操作 SHALL 被拒絕並顯示「尚未完成 Google 授權，請先執行 python -m app google-login」。
-
-#### Scenario: 未授權時匯入
-- **WHEN** 尚未授權時老師輸入試算表網址匯入
-- **THEN** 系統拒絕並顯示「尚未完成 Google 授權，請先執行 python -m app google-login」
-
 ### Requirement: 授權自動更新與失效
 存取權杖過期時系統 SHALL 自動以更新權杖取得新的存取權杖並保存。更新失敗（例如授權被撤銷或更新權杖過期）時，系統 SHALL 拒絕該操作並顯示「Google 授權已失效，請重新執行 python -m app google-login」。
 
@@ -51,20 +33,35 @@
 - **THEN** 系統拒絕並顯示「Google 授權已失效，請重新執行 python -m app google-login」
 
 ### Requirement: Google 存取錯誤訊息
-讀寫 Google 試算表失敗時，系統 SHALL 依原因顯示繁中訊息，且訊息 MUST NOT 含權杖、內部錯誤細節或 Google 回傳的原始內容：找不到試算表時顯示「找不到試算表，請確認網址是否正確」；檔案不是 Google 試算表格式（例如上傳到雲端硬碟的 Excel 檔）時顯示「這個檔案不是 Google 試算表格式，請先在 Google 試算表中選擇「檔案 → 儲存為 Google 試算表」後再使用新檔案的網址」；沒有權限時顯示「目前授權的 Google 帳號沒有這份試算表的讀取或編輯權限，請確認試算表已共用給該帳號」；無法連線時顯示「無法連線到 Google，請確認網路連線後再試」；Google Cloud 專案尚未啟用 Google Sheets API 時顯示「Google Cloud 專案尚未啟用 Google Sheets API，請依 README 啟用後再試」；Google 服務異常或流量受限時顯示「Google 服務暫時無法使用，請稍後再試」。
+讀寫 Google 試算表失敗時，系統 SHALL 依 HTTP 狀態分類並顯示繁中訊息，且訊息 MUST NOT 含權杖、內部錯誤細節或 Google 回傳的原始內容：
+- 401 或更新權杖失效：顯示「Google 授權已失效，請重新執行 python -m app google-login」。
+- 404：顯示「找不到試算表，請確認網址是否正確」。
+- 403：顯示「目前登入的 Google 帳號（<帳號 email>）沒有這份試算表的編輯權限，請改用有權限的帳號重新登入，或請擁有者把試算表共用給這個帳號（編輯者）」；無法取得帳號時省略括號部分。
+- 其他錯誤，包含無法連線、逾時與 Google 服務異常：顯示「目前無法連線到 Google 試算表，請稍後再試」。
 
 #### Scenario: 沒有權限
-- **WHEN** 老師匯入一份沒有共用給授權帳號的試算表
-- **THEN** 系統顯示沒有權限的訊息，不建立任何資料
+- **WHEN** 老師以 teacher@example.com 授權後，匯入一份沒有共用給該帳號的試算表
+- **THEN** 系統顯示含「（teacher@example.com）」的沒有權限訊息，不建立任何資料
 
 #### Scenario: 網路中斷
 - **WHEN** 匯入時無法連線到 Google
-- **THEN** 系統顯示「無法連線到 Google，請確認網路連線後再試」
-
-#### Scenario: 雲端硬碟中的 Excel 檔
-- **WHEN** 老師輸入的網址指向上傳到雲端硬碟、尚未轉成 Google 試算表的 .xlsx 檔
-- **THEN** 系統顯示「這個檔案不是 Google 試算表格式」並說明如何另存為 Google 試算表
+- **THEN** 系統顯示「目前無法連線到 Google 試算表，請稍後再試」
 
 #### Scenario: 未啟用 Sheets API
-- **WHEN** OAuth 用戶端所屬的 Google Cloud 專案沒有啟用 Google Sheets API 時匯入
-- **THEN** 系統顯示「Google Cloud 專案尚未啟用 Google Sheets API，請依 README 啟用後再試」，而不是沒有權限的訊息
+- **WHEN** OAuth 用戶端所屬的 Google Cloud 專案沒有啟用 Google Sheets API 時匯入（Google 回傳 403）
+- **THEN** 系統顯示沒有權限的訊息
+
+### Requirement: 未授權時拒絕啟動
+`python -m app` 啟動伺服器前 SHALL 先檢查老師密碼，再檢查 Google 授權：
+- OAuth 用戶端設定檔不存在時，輸出「找不到 Google OAuth 用戶端設定檔（BUZZER_GOOGLE_CLIENT_SECRETS），伺服器無法啟動。請依 README 設定後執行 python -m app google-login」。
+- 授權檔不存在、無法載入或沒有更新權杖時，輸出「尚未完成 Google 授權，伺服器無法啟動。請先執行 python -m app google-login」。
+
+兩種情況都 SHALL 以結束碼 1 結束，不開始監聽。伺服器執行期間授權檔被移除時，匯入與寫回 SHALL 顯示「尚未完成 Google 授權，請先執行 python -m app google-login」。
+
+#### Scenario: 缺少用戶端設定檔
+- **WHEN** 已設定老師密碼、但沒有 OAuth 用戶端設定檔時啟動伺服器
+- **THEN** 伺服器拒絕啟動並說明缺少用戶端設定檔
+
+#### Scenario: 尚未授權
+- **WHEN** 有 OAuth 用戶端設定檔、但尚未執行登入指令時啟動伺服器
+- **THEN** 伺服器拒絕啟動並提示先執行 `python -m app google-login`
