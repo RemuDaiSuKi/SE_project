@@ -40,7 +40,7 @@
 ### Modified Capabilities
 
 - `teacher-auth`: 「老師專屬操作」加入查看活動清單與活動監看。
-- `server-runtime`: 「參數可設定」加入組數、組名長度、答案長度、冷卻、全體輸錯上限與 WebSocket 驗證逾時。
+- `server-runtime`: 新增「搶答活動參數可設定」：組數、組名長度、答案長度、冷卻、全體輸錯上限與 WebSocket 驗證逾時。
 
 ## Impact
 
