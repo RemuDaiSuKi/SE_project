@@ -1,10 +1,10 @@
-# Spec Delta
+# success-invalidation Specification
 
 ## Purpose
 
-讓老師把某個搶答單位目前的成功答案判為無效，由下一順位遞補，或讓單位重新開放。
+讓老師把某個搶答單位目前的成功答案判為無效，由下一順位的組別遞補；沒有可遞補的組別時，搶答中的單位重新開放，已結束的單位則為無人搶答。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 以單位判定無效
 老師 SHALL 以搶答單位為對象判定無效：把該單位目前的成功者標為無效。判定無效只限搶答中或已結束的活動。

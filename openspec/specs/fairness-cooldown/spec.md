@@ -1,10 +1,10 @@
-# Spec Delta
+# fairness-cooldown Specification
 
 ## Purpose
 
-避免單一組別連續搶走所有題目：領先其他組別太多的組別必須等待一段時間才能再送出。
+避免單一組別連續搶走所有題目：某組的成功數領先其他組別達到設定的題數時，必須冷卻一段時間才能再送出，讓還沒搶答成功的組別也有機會參與。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 冷卻條件
 冷卻啟用時，某組的即時送出成功後，系統 SHALL 計算「該組成功數 − 全體最少成功數」，差值 ≥ K 時讓該組冷卻 N 秒。
