@@ -3,6 +3,8 @@ import * as api from "./api.js";
 const $ = (id) => document.getElementById(id);
 
 let currentPreview = null;
+let worksheetTitles = new Map();   // 學習單編號 → 試算表名稱
+let activityList = [];             // 活動清單（含建立時間）
 
 function show(element, visible) {
   element.classList.toggle("hidden", !visible);
@@ -15,8 +17,18 @@ function cell(text) {
 }
 
 function showMessage(box, kind, message, details = []) {
+  const toast = box.hasAttribute("data-toast");
+  if (toast) {
+    // 操作訊息固定在畫面底部，同一時間只顯示最新的一則
+    for (const other of document.querySelectorAll(".message[data-toast]")) {
+      if (other !== box) show(other, false);
+    }
+  }
   box.className = `message ${kind}`;
-  box.replaceChildren(document.createTextNode(message));
+  const text = document.createElement("div");
+  text.className = "message-text";
+  text.textContent = message;
+  box.replaceChildren(text);
   if (details.length) {
     const list = document.createElement("ul");
     for (const detail of details) {
@@ -24,7 +36,16 @@ function showMessage(box, kind, message, details = []) {
       item.textContent = detail.message;
       list.appendChild(item);
     }
-    box.appendChild(list);
+    text.appendChild(list);
+  }
+  if (toast) {
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "message-close";
+    close.setAttribute("aria-label", "關閉訊息");
+    close.textContent = "×";
+    close.addEventListener("click", () => show(box, false));
+    box.appendChild(close);
   }
 }
 
@@ -91,6 +112,8 @@ async function refreshWorksheets() {
       cell(ws.groupCount), cell(confirmed));
     return tr;
   });
+  worksheetTitles = new Map(data.worksheets.map((ws) => [ws.id, ws.title]));
+  if (activity) renderActivityMeta(activity);
   $("worksheets-rows").replaceChildren(...rows);
   show($("worksheets-table"), rows.length > 0);
   show($("worksheets-empty"), rows.length === 0);
@@ -215,12 +238,30 @@ function hideActivity() {
   activity = null;
   clearInterval(countdown);
   show($("activity"), false);
+  renderActivityList();
+}
+
+function formatTime(iso) {
+  return iso ? new Date(iso).toLocaleString("zh-TW") : "—";
+}
+
+// 同一份學習單可能開好幾場活動，顯示學習單名稱與建立時間，避免選錯場次寫回
+function renderActivityMeta(a) {
+  const title = worksheetTitles.get(a.worksheetId);
+  $("activity-worksheet").textContent = title
+    ? `學習單：${title}（編號 ${a.worksheetId}）`
+    : `學習單編號 ${a.worksheetId}`;
+  const listed = activityList.find((item) => item.id === a.id);
+  $("activity-created").textContent = `建立時間：${formatTime(listed?.createdAt)}`;
 }
 
 function renderActivity(a) {
+  const changed = activity?.id !== a.id;
   activity = a;
   show($("activity"), true);
   $("activity-id").textContent = a.id;
+  renderActivityMeta(a);
+  if (changed) renderActivityList();
   $("activity-phase").textContent = PHASE[a.phase] ?? a.phase;
   $("activity-fairness").textContent = a.fairness.enabled
     ? `冷卻：領先 ${a.fairness.cooldownLead} 題冷卻 ${a.fairness.cooldownSeconds} 秒`
@@ -285,13 +326,28 @@ async function loadActivity(id) {
 
 async function refreshActivities() {
   const data = await api.request("GET", "/api/activities");
-  const rows = data.activities.map((a) => {
+  activityList = data.activities;
+  renderActivityList();
+  if (activity) renderActivityMeta(activity);
+}
+
+function renderActivityList() {
+  const rows = activityList.map((a) => {
     const tr = document.createElement("tr");
     const action = document.createElement("td");
-    if (a.phase !== "interrupted") action.appendChild(button("檢視", () => loadActivity(a.id)));
+    const viewing = activity?.id === a.id;
+    if (viewing) {
+      // 目前檢視中的那一列加底色，按鈕改為不可按的「目前檢視中」
+      tr.className = "current-row";
+      tr.setAttribute("aria-current", "true");
+      const b = button("目前檢視中", () => {});
+      b.disabled = true;
+      action.appendChild(b);
+    } else if (a.phase !== "interrupted") {
+      action.appendChild(button("檢視", () => loadActivity(a.id)));
+    }
     tr.append(cell(a.id), cell(a.worksheetId), cell(PHASE[a.phase] ?? a.phase),
-      cell(new Date(a.createdAt).toLocaleString("zh-TW")),
-      cell(a.endedAt ? new Date(a.endedAt).toLocaleString("zh-TW") : "—"), action);
+      cell(formatTime(a.createdAt)), cell(formatTime(a.endedAt)), action);
     return tr;
   });
   $("activities-rows").replaceChildren(...rows);
