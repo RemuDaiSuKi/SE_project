@@ -33,7 +33,7 @@
                  placeholder="https://docs.google.com/spreadsheets/d/…/edit" required>
           <div class="row"><button id="upload-button" class="primary" type="submit">讀取並檢查</button></div>
         </form>
-        <div id="upload-message" class="message hidden" role="alert"></div>
+        <div id="upload-message" class="message hidden" role="alert" data-toast></div>
       </section>
 
       <section id="preview" class="card hidden" aria-live="polite">
@@ -91,19 +91,23 @@
           </div>
           <div class="row"><button id="create-button" class="primary" type="submit">建立活動</button></div>
         </form>
-        <div id="create-message" class="message hidden" role="alert"></div>
+        <div id="create-message" class="message hidden" role="alert" data-toast></div>
       </section>
 
       <section id="activity" class="card hidden" aria-live="polite">
         <h2>活動 <span id="activity-id"></span>：<span id="activity-phase"></span></h2>
-        <div class="chips"><span class="chip" id="activity-fairness"></span></div>
+        <div class="chips">
+          <span class="chip" id="activity-worksheet"></span>
+          <span class="chip" id="activity-created"></span>
+          <span class="chip" id="activity-fairness"></span>
+        </div>
         <div class="row">
           <button id="start" class="primary" type="button">開始搶答</button>
           <button id="end" type="button">結束活動</button>
           <button id="writeback" class="primary hidden" type="button">寫回答案</button>
           <button id="download-csv" class="hidden" type="button">下載 CSV</button>
         </div>
-        <div id="activity-message" class="message hidden" role="alert"></div>
+        <div id="activity-message" class="message hidden" role="alert" data-toast></div>
 
         <h2 style="margin-top:16px">組別</h2>
         <div class="table-wrap">
