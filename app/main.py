@@ -82,8 +82,13 @@ def create_app(settings: Settings, *, clock: Clock = time.monotonic,
     async def _security_headers(request: Request, call_next):  # noqa: ANN001, ANN202
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        if request.url.path.startswith("/api/"):
+        path = request.url.path
+        if path.startswith("/api/"):
             response.headers.setdefault("Cache-Control", "no-store")
+        elif path in ("/", "/teacher") or path.startswith("/static/"):
+            # 瀏覽器可以保留快取，但每次使用前都先確認有沒有新版；
+            # /static/ 的檔案未變更時由 StaticFiles 依 ETag 回應 304
+            response.headers.setdefault("Cache-Control", "no-cache")
         return response
 
     @app.get("/", include_in_schema=False)

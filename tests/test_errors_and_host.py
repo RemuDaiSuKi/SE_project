@@ -57,6 +57,24 @@ def test_api_responses_not_cached(client):
     assert client.post("/api/windows").headers["cache-control"] == "no-store"
 
 
+@pytest.mark.parametrize("path", ["/", "/teacher", "/static/js/teacher.js", "/static/js/api.js",
+                                  "/static/js/student.js", "/static/css/app.css"])
+def test_pages_and_assets_revalidate(client, path):
+    # 瀏覽器每次使用快取前都要先向伺服器確認有沒有新版
+    response = client.get(path)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_unchanged_asset_returns_304(client):
+    first = client.get("/static/js/teacher.js")
+    etag = first.headers["etag"]
+    second = client.get("/static/js/teacher.js", headers={"If-None-Match": etag})
+    assert second.status_code == 304
+    assert second.content == b""
+    assert second.headers["cache-control"] == "no-cache"
+
+
 def test_pages_served(client):
     assert client.get("/").status_code == 200
     teacher = client.get("/teacher")
