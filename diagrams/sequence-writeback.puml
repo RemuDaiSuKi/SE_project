@@ -29,8 +29,7 @@ Gateway --> Service : SpreadsheetGrid
 Service -> Service : 把預期的填空格內容暫時視為空白
 Service -> Parser : parse_grid(grid, 目前設定的標籤, 題數上限)
 Parser --> Service : ParsedWorksheet
-Service -> Service : 比對題數，再逐題比對工作表 ID、工作表名稱、填空格、題組
-（遇到第一個差異就停止）
+Service -> Service : 比對題數，再逐題比對工作表 ID、工作表名稱、填空格、題組\n（遇到第一個差異就停止）
 alt 結構不一致
   Service --> Api : StructureMismatch（不一致項目）
   Api --> Browser : 409「學習單結構與匯入時不一致，無法寫回」

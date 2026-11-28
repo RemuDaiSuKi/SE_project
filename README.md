@@ -127,7 +127,7 @@ Copy-Item .env.example .env
 
 ## 設計圖
 
-`diagrams/*.puml` 是 PlantUML 原始檔，repo 不提交轉出的 PNG。想看圖時可以自行轉檔（需要 Java），產生的 PNG 不要 commit：
+`diagrams/*.puml` 是 PlantUML 原始檔，同名的 `.png` 是轉出的圖，兩者都放在 repo 裡。修改 `.puml` 後要重新轉檔（需要 Java），並把更新後的 PNG 一起 commit：
 
 1. 從 Maven Central 下載 `net.sourceforge.plantuml:plantuml` 的 jar（例如 1.2026.10），放到 `.tools/`（已列入 `.gitignore`）。
 2. 在專案根目錄執行：

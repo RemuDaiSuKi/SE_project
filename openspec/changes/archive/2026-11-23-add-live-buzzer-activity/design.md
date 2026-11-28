@@ -303,6 +303,8 @@ SpecKit 組的 `ActivityEngine` 是純邏輯、時鐘可注入，可以直接 im
 
 設計圖只保留 PlantUML 原始檔，不提交 PNG：作業只要求 SpecKit 組畫圖，本組以 Demo 影片展示流程，而且過時的 PNG 會和 `.puml` 不一致（2026-11-23 組內決定）。原本提交的 PNG 已刪除，`openspec/config.yaml` 的規則也一併修改。需要看圖時，可以用 README「設計圖」的指令自行轉檔。
 
+> **後續（2026-11-28）：** 為了讓 GitHub 上閱讀 design.md 的人直接看得到圖，改回提交 PNG。所有 `.puml` 都重新轉出同名 PNG，`openspec/config.yaml` 恢復「轉成 PNG 並一起提交」的規則，README 也一併更新。
+
 ## Risks / Trade-offs
 
 - **鎖內同步寫 SQLite 會短暫擋住事件迴圈。** 結束時一次寫入全部送出，課堂規模下最多數百筆，可以接受；SpecKit 組也是這樣做。

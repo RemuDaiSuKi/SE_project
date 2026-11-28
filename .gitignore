@@ -21,5 +21,3 @@ __pycache__/
 build/
 dist/
 
-# PlantUML 轉出的圖（只提交 .puml）
-diagrams/*.png

@@ -18,8 +18,10 @@ skillsScope: project
 
 rules:
   design:
-    - 以 PlantUML 繪製本 change 涉及的元件圖、類別圖與時序圖，原始檔放在 repo 根目錄的 ./diagrams/*.puml（只保留原始檔，不提交轉出的 PNG）
+    - 以 PlantUML 繪製本 change 涉及的元件圖、類別圖與時序圖，原始檔放在 repo 根目錄的 ./diagrams/*.puml，並轉成同名 PNG（./diagrams/*.png）一起提交
     - design.md 必須列出並引用本 change 新增或修改的圖檔
+  tasks:
+    - 若 design 新增或修改了 ./diagrams 中的圖，tasks 必須包含把 .puml 轉成 PNG 並確認 PNG 已更新的任務
 
 # Per-operation guidance (optional)
 # Add advisory guidance for how apply and archive work should be conducted.
